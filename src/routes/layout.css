@@ -1,0 +1,46 @@
+@import 'tailwindcss';
+@plugin '@tailwindcss/forms';
+
+/* Shared component classes. Use these instead of re-styling every page. */
+@layer components {
+	.page {
+		@apply mx-auto w-full max-w-4xl px-4 py-6;
+	}
+	.page-title {
+		@apply mb-4 text-2xl font-semibold tracking-tight text-slate-900;
+	}
+	.card {
+		@apply rounded-xl border border-slate-200 bg-white p-4 shadow-sm;
+	}
+	.label {
+		@apply mb-1 block text-sm font-medium text-slate-700;
+	}
+	.input {
+		@apply block w-full rounded-lg border-slate-300 text-sm shadow-sm focus:border-emerald-500 focus:ring-emerald-500;
+	}
+	.btn {
+		@apply inline-flex items-center justify-center gap-2 rounded-lg px-3.5 py-2 text-sm font-medium transition focus:ring-2 focus:ring-emerald-500 focus:ring-offset-1 focus:outline-none disabled:opacity-50;
+	}
+	.btn-primary {
+		@apply bg-emerald-600 text-white hover:bg-emerald-700;
+	}
+	.btn-secondary {
+		@apply border border-slate-300 bg-white text-slate-700 hover:bg-slate-50;
+	}
+	.btn-danger {
+		@apply bg-rose-600 text-white hover:bg-rose-700;
+	}
+	.error-text {
+		@apply text-sm text-rose-600;
+	}
+	.muted {
+		@apply text-sm text-slate-500;
+	}
+	/* money colors: positive = owed to member, negative = member owes */
+	.amount-pos {
+		@apply font-medium text-emerald-700 tabular-nums;
+	}
+	.amount-neg {
+		@apply font-medium text-rose-700 tabular-nums;
+	}
+}
