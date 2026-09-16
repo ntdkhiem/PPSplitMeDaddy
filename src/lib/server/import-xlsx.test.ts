@@ -73,15 +73,15 @@ describe('parseWorkbook (real file)', () => {
 describe('commitImport (real file into a test db)', () => {
 	it('imports all mapped rows, is idempotent with skipExisting, and balances the ledger', async () => {
 		const wb = await loadRealWorkbook();
-		const db = createTestDb();
-		const tyler = createMember(db, { name: 'Tyler' });
-		const khiem = createMember(db, { name: 'Khiem' });
+		const db = await createTestDb();
+		const tyler = await createMember(db, { name: 'Tyler' });
+		const khiem = await createMember(db, { name: 'Khiem' });
 		const mapping = { Tyler: tyler.id, Khiem: khiem.id, VOID: null, BLANK: null };
 
-		const first = commitImport(db, wb, mapping, { date: '2026-01-01', createdBy: null });
+		const first = await commitImport(db, wb, mapping, { date: '2026-01-01', createdBy: null });
 		expect(first.created).toBe(23);
 
-		const second = commitImport(db, wb, mapping, {
+		const second = await commitImport(db, wb, mapping, {
 			date: '2026-01-01',
 			createdBy: null,
 			skipExisting: true
@@ -90,24 +90,22 @@ describe('commitImport (real file into a test db)', () => {
 
 		// Independently derive each member's net balance straight from the tables and check it
 		// zero-sums (every expense's shares must sum to its amount, and only Tyler/Khiem are mapped).
-		function netBalance(memberId: string): number {
-			const paid = db
-				.select()
-				.from(expenses)
-				.where(and(eq(expenses.payerId, memberId), isNull(expenses.deletedAt)))
-				.all()
-				.reduce((sum, e) => sum + e.amountCents, 0);
-			const owed = db
-				.select()
-				.from(expenseShares)
-				.where(eq(expenseShares.memberId, memberId))
-				.all()
-				.reduce((sum, s) => sum + s.amountCents, 0);
+		async function netBalance(memberId: string): Promise<number> {
+			const paid = (
+				await db
+					.select()
+					.from(expenses)
+					.where(and(eq(expenses.payerId, memberId), isNull(expenses.deletedAt)))
+					.all()
+			).reduce((sum, e) => sum + e.amountCents, 0);
+			const owed = (
+				await db.select().from(expenseShares).where(eq(expenseShares.memberId, memberId)).all()
+			).reduce((sum, s) => sum + s.amountCents, 0);
 			return paid - owed;
 		}
 
-		const tylerBalance = netBalance(tyler.id);
-		const khiemBalance = netBalance(khiem.id);
+		const tylerBalance = await netBalance(tyler.id);
+		const khiemBalance = await netBalance(khiem.id);
 		expect(tylerBalance + khiemBalance).toBe(0);
 		// Golden value derived from the real workbook (see agent report), guards against regressions.
 		expect(tylerBalance).toBe(7375);
@@ -115,12 +113,12 @@ describe('commitImport (real file into a test db)', () => {
 
 	it('skips rows whose payer is not in the mapping, and reports why', async () => {
 		const wb = await loadRealWorkbook();
-		const db = createTestDb();
-		const tyler = createMember(db, { name: 'Tyler' });
+		const db = await createTestDb();
+		const tyler = await createMember(db, { name: 'Tyler' });
 		// Khiem intentionally left unmapped.
 		const mapping = { Tyler: tyler.id, VOID: null, BLANK: null };
 
-		const result = commitImport(db, wb, mapping, { date: '2026-01-01', createdBy: null });
+		const result = await commitImport(db, wb, mapping, { date: '2026-01-01', createdBy: null });
 		// 15 Tyler Bills rows minus the 6 Khiem-only rows (slippers, deodorant, polo shirts,
 		// com tam, popeyes, Lion Market), which end up with no mapped participants.
 		expect(result.created).toBe(9);

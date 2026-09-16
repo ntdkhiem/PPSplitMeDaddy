@@ -72,7 +72,6 @@
 <form
 	method="POST"
 	{action}
-	enctype="multipart/form-data"
 	class="space-y-5"
 	use:enhance={() => {
 		submitting = true;
@@ -168,20 +167,6 @@
 
 	<SplitEditor members={splitMembers} {amountCents} bind:splitMode bind:participants />
 	{#if errors.participants}<p class="error-text">{errors.participants}</p>{/if}
-
-	<div>
-		<label class="label" for="receipt">Receipt</label>
-		<input
-			class="input"
-			id="receipt"
-			name="receipt"
-			type="file"
-			accept="image/*,application/pdf"
-			capture="environment"
-		/>
-		<p class="muted mt-1">JPEG, PNG, WebP, HEIC or PDF, up to 10 MB.</p>
-		{#if errors.receipt}<p class="error-text">{errors.receipt}</p>{/if}
-	</div>
 
 	<div class="flex justify-end">
 		<button class="btn btn-primary" disabled={submitting}>{submitLabel}</button>

@@ -93,12 +93,7 @@
 							class="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between sm:gap-4"
 						>
 							<div class="min-w-0 flex-1">
-								<p class="flex items-center gap-1 font-medium break-words">
-									{e.description}
-									{#if e.receiptPath}
-										<span title="Has a receipt" aria-label="Has a receipt">📎</span>
-									{/if}
-								</p>
+								<p class="font-medium break-words">{e.description}</p>
 								<p class="muted">
 									{e.date} · {payer?.name ?? 'Unknown'}{e.category ? ` · ${e.category}` : ''}
 								</p>

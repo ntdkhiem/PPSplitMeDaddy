@@ -1,4 +1,4 @@
-import { asc, eq } from 'drizzle-orm';
+import { and, asc, count, eq } from 'drizzle-orm';
 import type { DB } from '../db';
 import { members, type Member } from '../db/schema';
 
@@ -10,20 +10,24 @@ export function toView(m: Member): MemberView {
 	return { ...rest, hasLogin: passwordHash !== null };
 }
 
-export function listMembers(db: DB, opts: { includeInactive?: boolean } = {}): MemberView[] {
-	const rows = db.select().from(members).orderBy(asc(members.name)).all();
+export async function listMembers(
+	db: DB,
+	opts: { includeInactive?: boolean } = {}
+): Promise<MemberView[]> {
+	const rows = await db.select().from(members).orderBy(asc(members.name)).all();
 	return rows.filter((m) => opts.includeInactive || m.active).map(toView);
 }
 
-export function getMember(db: DB, id: string): Member | undefined {
+export async function getMember(db: DB, id: string): Promise<Member | undefined> {
 	return db.select().from(members).where(eq(members.id, id)).get();
 }
 
-export function countMembers(db: DB): number {
-	return db.select().from(members).all().length;
+export async function countMembers(db: DB): Promise<number> {
+	const row = await db.select({ n: count() }).from(members).get();
+	return row?.n ?? 0;
 }
 
-export function createMember(
+export async function createMember(
 	db: DB,
 	input: {
 		name: string;
@@ -31,7 +35,7 @@ export function createMember(
 		passwordHash?: string | null;
 		role?: 'admin' | 'member';
 	}
-): Member {
+): Promise<Member> {
 	const row = {
 		id: crypto.randomUUID(),
 		name: input.name.trim(),
@@ -42,34 +46,33 @@ export function createMember(
 	return db.insert(members).values(row).returning().get();
 }
 
-export function updateMember(
+export async function updateMember(
 	db: DB,
 	id: string,
 	patch: Partial<Pick<Member, 'name' | 'email' | 'passwordHash' | 'role' | 'active'>>
-): void {
-	db.update(members).set(patch).where(eq(members.id, id)).run();
+): Promise<void> {
+	await db.update(members).set(patch).where(eq(members.id, id)).run();
 }
 
 /** Finds a member by (normalized) email. */
-export function getMemberByEmail(db: DB, email: string): Member | undefined {
+export async function getMemberByEmail(db: DB, email: string): Promise<Member | undefined> {
 	return db.select().from(members).where(eq(members.email, email.trim().toLowerCase())).get();
 }
 
 /** Case-insensitive name lookup (names are unique). */
-export function getMemberByName(db: DB, name: string): Member | undefined {
+export async function getMemberByName(db: DB, name: string): Promise<Member | undefined> {
+	// Compared in JS: SQLite's lower() only folds ASCII.
 	const n = name.trim().toLowerCase();
-	return db
-		.select()
-		.from(members)
-		.all()
-		.find((m) => m.name.toLowerCase() === n);
+	const rows = await db.select().from(members).all();
+	return rows.find((m) => m.name.toLowerCase() === n);
 }
 
 /** Number of active admins. */
-export function countActiveAdmins(db: DB): number {
-	return db
-		.select()
+export async function countActiveAdmins(db: DB): Promise<number> {
+	const row = await db
+		.select({ n: count() })
 		.from(members)
-		.all()
-		.filter((m) => m.active && m.role === 'admin').length;
+		.where(and(eq(members.active, true), eq(members.role, 'admin')))
+		.get();
+	return row?.n ?? 0;
 }

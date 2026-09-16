@@ -1,12 +1,10 @@
-import { and, eq } from 'drizzle-orm';
-import cron from 'node-cron';
+import { eq } from 'drizzle-orm';
 import { splitAmount } from '$lib/ledger';
+import { localDate } from '$lib/money';
 import type { ShareInput, SplitMode } from '$lib/types';
 import type { DB } from './db';
 import { expenses, recurringTemplates, type RecurringTemplate } from './db/schema';
 import { createExpense } from './services/expenses';
-
-// TODO(wave1-D): implement. Keep these signatures.
 
 export interface TemplateInput {
 	description: string;
@@ -40,20 +38,20 @@ function validateInput(input: TemplateInput): void {
 	}
 }
 
-export function listTemplates(db: DB): RecurringTemplate[] {
+export async function listTemplates(db: DB): Promise<RecurringTemplate[]> {
 	return db.select().from(recurringTemplates).all();
 }
 
-export function getTemplate(db: DB, id: string): RecurringTemplate | undefined {
+export async function getTemplate(db: DB, id: string): Promise<RecurringTemplate | undefined> {
 	return db.select().from(recurringTemplates).where(eq(recurringTemplates.id, id)).get();
 }
 
 /** Validates (dayOfMonth range, period format, split valid when amount known) and inserts. */
-export function createTemplate(
+export async function createTemplate(
 	db: DB,
 	input: TemplateInput,
 	createdBy: string | null
-): RecurringTemplate {
+): Promise<RecurringTemplate> {
 	validateInput(input);
 	return db
 		.insert(recurringTemplates)
@@ -74,9 +72,13 @@ export function createTemplate(
 		.get();
 }
 
-export function updateTemplate(db: DB, id: string, input: TemplateInput): RecurringTemplate {
+export async function updateTemplate(
+	db: DB,
+	id: string,
+	input: TemplateInput
+): Promise<RecurringTemplate> {
 	validateInput(input);
-	const row = db
+	const row = await db
 		.update(recurringTemplates)
 		.set({
 			description: input.description.trim(),
@@ -97,25 +99,22 @@ export function updateTemplate(db: DB, id: string, input: TemplateInput): Recurr
 }
 
 /** Hard-deletes a template only if no expenses reference it; otherwise deactivates it. */
-export function deleteTemplate(db: DB, id: string): void {
-	const referencing = db
+export async function deleteTemplate(db: DB, id: string): Promise<void> {
+	const referencing = await db
 		.select({ id: expenses.id })
 		.from(expenses)
 		.where(eq(expenses.recurringTemplateId, id))
 		.limit(1)
 		.get();
 	if (referencing) {
-		db.update(recurringTemplates).set({ active: false }).where(eq(recurringTemplates.id, id)).run();
+		await db
+			.update(recurringTemplates)
+			.set({ active: false })
+			.where(eq(recurringTemplates.id, id))
+			.run();
 	} else {
-		db.delete(recurringTemplates).where(eq(recurringTemplates.id, id)).run();
+		await db.delete(recurringTemplates).where(eq(recurringTemplates.id, id)).run();
 	}
-}
-
-function localDateStr(d: Date): string {
-	const y = d.getFullYear();
-	const m = String(d.getMonth() + 1).padStart(2, '0');
-	const day = String(d.getDate()).padStart(2, '0');
-	return `${y}-${m}-${day}`;
 }
 
 /** Inclusive list of YYYY-MM periods from `start` through `end`. */
@@ -136,91 +135,73 @@ function periodsBetween(start: string, end: string): string[] {
 	return periods;
 }
 
+/** Drizzle wraps driver errors ("Failed query: …"), so check the cause chain too. */
 function isUniqueConstraintError(err: unknown): boolean {
-	return err instanceof Error && /UNIQUE constraint failed/i.test(err.message);
+	for (let e = err; e instanceof Error; e = e.cause) {
+		if (/UNIQUE constraint failed/i.test(e.message)) return true;
+	}
+	return false;
 }
 
 /**
  * For every active template, creates the expense for each period from startPeriod up to and
- * including the current period of `now` whose due date (period + dayOfMonth) is <= now's local date,
- * skipping periods that already have an expense for that template (including soft-deleted ones).
- * Expense date = due date; period = YYYY-MM. Known amount -> posted with computed split;
- * null amount -> draft with amountCents 0 (to be filled in by a user).
- * Idempotent: calling twice creates nothing new. Returns number of expenses created.
+ * including the current period of `now` whose due date (period + dayOfMonth) is <= now's date in the
+ * household time zone (see localDate), skipping periods that already have an expense for that template
+ * (including soft-deleted ones). Expense date = due date; period = YYYY-MM. Known amount -> posted with
+ * computed split; null amount -> draft with amountCents 0 (to be filled in by a user).
+ * Idempotent (backed by the unique (template, period) index, so concurrent runs are safe too): calling
+ * twice creates nothing new. Returns number of expenses created.
  */
-export function generateDueExpenses(db: DB, now: Date = new Date()): number {
-	const today = localDateStr(now);
+export async function generateDueExpenses(db: DB, now: Date = new Date()): Promise<number> {
+	const today = localDate(now);
 	const currentPeriod = today.slice(0, 7);
-	const templates = db
+	const templates = await db
 		.select()
 		.from(recurringTemplates)
 		.where(eq(recurringTemplates.active, true))
 		.all();
 
-	return db.transaction((tx) => {
-		let count = 0;
-		for (const tpl of templates) {
-			if (tpl.startPeriod > currentPeriod) continue;
-			const periods = periodsBetween(tpl.startPeriod, currentPeriod);
-			const dd = String(tpl.dayOfMonth).padStart(2, '0');
-			for (const period of periods) {
-				const dueDate = `${period}-${dd}`;
-				if (dueDate > today) continue;
-
-				const existing = tx
-					.select({ id: expenses.id })
+	let count = 0;
+	for (const tpl of templates) {
+		if (tpl.startPeriod > currentPeriod) continue;
+		const existing = new Set(
+			(
+				await db
+					.select({ period: expenses.period })
 					.from(expenses)
-					.where(and(eq(expenses.recurringTemplateId, tpl.id), eq(expenses.period, period)))
-					.get();
-				if (existing) continue;
+					.where(eq(expenses.recurringTemplateId, tpl.id))
+					.all()
+			).map((e) => e.period)
+		);
+		const dd = String(tpl.dayOfMonth).padStart(2, '0');
+		for (const period of periodsBetween(tpl.startPeriod, currentPeriod)) {
+			const dueDate = `${period}-${dd}`;
+			if (dueDate > today || existing.has(period)) continue;
 
-				const isKnown = tpl.amountCents !== null;
-				try {
-					createExpense(
-						tx as unknown as DB,
-						{
-							description: tpl.description,
-							amountCents: isKnown ? tpl.amountCents! : 0,
-							date: dueDate,
-							payerId: tpl.payerId,
-							splitMode: tpl.splitMode,
-							participants: tpl.participants,
-							category: tpl.category,
-							status: isKnown ? 'posted' : 'draft',
-							recurringTemplateId: tpl.id,
-							period
-						},
-						null
-					);
-					count++;
-				} catch (err) {
-					if (isUniqueConstraintError(err)) continue;
-					throw err;
-				}
+			const isKnown = tpl.amountCents !== null;
+			try {
+				await createExpense(
+					db,
+					{
+						description: tpl.description,
+						amountCents: isKnown ? tpl.amountCents! : 0,
+						date: dueDate,
+						payerId: tpl.payerId,
+						splitMode: tpl.splitMode,
+						participants: tpl.participants,
+						category: tpl.category,
+						status: isKnown ? 'posted' : 'draft',
+						recurringTemplateId: tpl.id,
+						period
+					},
+					null
+				);
+				count++;
+			} catch (err) {
+				if (isUniqueConstraintError(err)) continue;
+				throw err;
 			}
 		}
-		return count;
-	});
-}
-
-/** Runs generateDueExpenses on startup and daily at 06:00 via node-cron. Safe to call more than once. */
-export function startRecurringScheduler(db: DB): void {
-	const g = globalThis as typeof globalThis & { __ppSplitMeDaddyRecurringStarted?: boolean };
-	if (g.__ppSplitMeDaddyRecurringStarted) return;
-	g.__ppSplitMeDaddyRecurringStarted = true;
-
-	const run = () => {
-		try {
-			generateDueExpenses(db);
-		} catch (err) {
-			console.error('recurring: failed to generate due expenses', err);
-		}
-	};
-
-	try {
-		run();
-		cron.schedule('0 6 * * *', run);
-	} catch (err) {
-		console.error('recurring: failed to start scheduler', err);
 	}
+	return count;
 }

@@ -60,10 +60,14 @@ export function getDummyHash(): Promise<string> {
 }
 
 /** Random 32-byte token (base64url); stores sha256(token) as the session id. */
-export function createSession(db: DB, memberId: string): { token: string; expiresAt: Date } {
+export async function createSession(
+	db: DB,
+	memberId: string
+): Promise<{ token: string; expiresAt: Date }> {
 	const token = generateToken();
 	const expiresAt = new Date(Date.now() + SESSION_TTL_MS);
-	db.insert(sessions)
+	await db
+		.insert(sessions)
 		.values({ id: hashToken(token), memberId, expiresAt })
 		.run();
 	return { token, expiresAt };
@@ -73,13 +77,13 @@ export function createSession(db: DB, memberId: string): { token: string; expire
  * Looks up the session by sha256(token). Returns null if missing, expired (and deletes it),
  * or the member is inactive/has no login. Extends expiry (sliding) when under half the TTL remains.
  */
-export function validateSessionToken(
+export async function validateSessionToken(
 	db: DB,
 	token: string
-): { member: MemberView; expiresAt: Date } | null {
+): Promise<{ member: MemberView; expiresAt: Date } | null> {
 	if (!token) return null;
 	const id = hashToken(token);
-	const row = db
+	const row = await db
 		.select({ session: sessions, member: members })
 		.from(sessions)
 		.innerJoin(members, eq(sessions.memberId, members.id))
@@ -89,7 +93,7 @@ export function validateSessionToken(
 
 	const now = Date.now();
 	if (row.session.expiresAt.getTime() <= now) {
-		db.delete(sessions).where(eq(sessions.id, id)).run();
+		await db.delete(sessions).where(eq(sessions.id, id)).run();
 		return null;
 	}
 	if (!row.member.active || row.member.passwordHash === null) return null;
@@ -97,19 +101,20 @@ export function validateSessionToken(
 	let expiresAt = row.session.expiresAt;
 	if (expiresAt.getTime() - now < SESSION_TTL_MS / 2) {
 		expiresAt = new Date(now + SESSION_TTL_MS);
-		db.update(sessions).set({ expiresAt }).where(eq(sessions.id, id)).run();
+		await db.update(sessions).set({ expiresAt }).where(eq(sessions.id, id)).run();
 	}
 	return { member: toView(row.member), expiresAt };
 }
 
-export function invalidateSession(db: DB, token: string): void {
-	db.delete(sessions)
+export async function invalidateSession(db: DB, token: string): Promise<void> {
+	await db
+		.delete(sessions)
 		.where(eq(sessions.id, hashToken(token)))
 		.run();
 }
 
-export function invalidateMemberSessions(db: DB, memberId: string): void {
-	db.delete(sessions).where(eq(sessions.memberId, memberId)).run();
+export async function invalidateMemberSessions(db: DB, memberId: string): Promise<void> {
+	await db.delete(sessions).where(eq(sessions.memberId, memberId)).run();
 }
 
 /**
@@ -142,20 +147,18 @@ export function deleteSessionCookie(cookies: Cookies): void {
  * Creates a one-time invite for an existing member; returns the raw token for the link /invite/<token>.
  * Any earlier unused invites for the member are revoked, so only the newest link works.
  */
-export function createInvite(db: DB, memberId: string): string {
+export async function createInvite(db: DB, memberId: string): Promise<string> {
 	const token = generateToken();
-	db.transaction((tx) => {
-		tx.delete(invites)
-			.where(and(eq(invites.memberId, memberId), isNull(invites.usedAt)))
-			.run();
-		tx.insert(invites)
+	await db.batch([
+		db.delete(invites).where(and(eq(invites.memberId, memberId), isNull(invites.usedAt))),
+		db
+			.insert(invites)
 			.values({ id: hashToken(token), memberId, expiresAt: new Date(Date.now() + INVITE_TTL_MS) })
-			.run();
-	});
+	]);
 	return token;
 }
 
-function findValidInvite(db: DB, token: string) {
+async function findValidInvite(db: DB, token: string) {
 	if (!token) return undefined;
 	return db
 		.select({ invite: invites, member: members })
@@ -172,8 +175,8 @@ function findValidInvite(db: DB, token: string) {
 }
 
 /** Returns the member for a valid, unused, unexpired invite token, else null. Does not consume. */
-export function getInviteMember(db: DB, token: string): MemberView | null {
-	const row = findValidInvite(db, token);
+export async function getInviteMember(db: DB, token: string): Promise<MemberView | null> {
+	const row = await findValidInvite(db, token);
 	return row ? toView(row.member) : null;
 }
 
@@ -191,33 +194,41 @@ export async function acceptInvite(
 			`Password must be at least ${MIN_PASSWORD_LENGTH} characters`
 		);
 	}
-	if (!findValidInvite(db, token))
+	if (!(await findValidInvite(db, token)))
 		throw new AuthError('invalid_invite', 'Invalid or expired invite');
 
-	// Hash outside the (synchronous) transaction, then re-check everything inside it.
+	// Hash before opening the transaction (it's slow), then re-check everything inside it.
 	const passwordHash = await hashPassword(input.password);
-	return db.transaction((tx) => {
-		const row = findValidInvite(tx as unknown as DB, token);
+	return db.transaction(async (tx) => {
+		const row = await findValidInvite(tx as unknown as DB, token);
 		if (!row) throw new AuthError('invalid_invite', 'Invalid or expired invite');
-		const taken = tx.select({ id: members.id }).from(members).where(eq(members.email, email)).get();
+		const taken = await tx
+			.select({ id: members.id })
+			.from(members)
+			.where(eq(members.email, email))
+			.get();
 		if (taken && taken.id !== row.member.id) {
 			throw new AuthError('email_taken', 'That email is already in use');
 		}
-		tx.update(members).set({ email, passwordHash }).where(eq(members.id, row.member.id)).run();
-		tx.update(invites).set({ usedAt: new Date() }).where(eq(invites.id, row.invite.id)).run();
+		await tx
+			.update(members)
+			.set({ email, passwordHash })
+			.where(eq(members.id, row.member.id))
+			.run();
+		await tx.update(invites).set({ usedAt: new Date() }).where(eq(invites.id, row.invite.id)).run();
 		// Acts as a password reset too: drop any existing sessions.
-		tx.delete(sessions).where(eq(sessions.memberId, row.member.id)).run();
-		const updated = tx.select().from(members).where(eq(members.id, row.member.id)).get()!;
+		await tx.delete(sessions).where(eq(sessions.memberId, row.member.id)).run();
+		const updated = (await tx.select().from(members).where(eq(members.id, row.member.id)).get())!;
 		return toView(updated);
 	});
 }
 
 /** Deletes expired sessions and expired or used invites. Returns rows removed. */
-export function purgeExpiredAuth(db: DB, now: Date = new Date()): number {
-	const s = db.delete(sessions).where(lte(sessions.expiresAt, now)).run();
-	const i = db
+export async function purgeExpiredAuth(db: DB, now: Date = new Date()): Promise<number> {
+	const s = await db.delete(sessions).where(lte(sessions.expiresAt, now)).run();
+	const i = await db
 		.delete(invites)
 		.where(or(lte(invites.expiresAt, now), isNotNull(invites.usedAt)))
 		.run();
-	return s.changes + i.changes;
+	return s.rowsAffected + i.rowsAffected;
 }

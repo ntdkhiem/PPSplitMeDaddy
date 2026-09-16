@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { formatMoney, parseMoney } from './money';
+import { formatMoney, localDate, parseMoney } from './money';
 
 describe('parseMoney', () => {
 	it.each([
@@ -22,5 +22,22 @@ describe('formatMoney', () => {
 	it('formats cents', () => {
 		expect(formatMoney(162558)).toBe('$1,625.58');
 		expect(formatMoney(-300)).toBe('-$3.00');
+	});
+});
+
+describe('localDate', () => {
+	it('uses APP_TZ when set, so a UTC server still uses the household date', () => {
+		const before = process.env.APP_TZ;
+		try {
+			// 2026-03-01 05:30 UTC is still Feb 28 in Los Angeles.
+			const d = new Date(Date.UTC(2026, 2, 1, 5, 30));
+			process.env.APP_TZ = 'America/Los_Angeles';
+			expect(localDate(d)).toBe('2026-02-28');
+			process.env.APP_TZ = 'UTC';
+			expect(localDate(d)).toBe('2026-03-01');
+		} finally {
+			if (before === undefined) delete process.env.APP_TZ;
+			else process.env.APP_TZ = before;
+		}
 	});
 });

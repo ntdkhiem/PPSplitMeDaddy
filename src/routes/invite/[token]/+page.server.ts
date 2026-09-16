@@ -27,8 +27,8 @@ const schema = z
 
 type Errors = Partial<Record<'email' | 'password' | 'confirm' | 'form', string>>;
 
-export const load: PageServerLoad = ({ params }) => {
-	const member = getInviteMember(getDb(), params.token);
+export const load: PageServerLoad = async ({ params }) => {
+	const member = await getInviteMember(getDb(), params.token);
 	return {
 		invite: member ? { name: member.name, email: member.email, hasLogin: member.hasLogin } : null
 	};
@@ -64,7 +64,7 @@ export const actions: Actions = {
 			throw e;
 		}
 
-		const session = createSession(db, memberId);
+		const session = await createSession(db, memberId);
 		setSessionCookie(cookies, session.token, session.expiresAt);
 		redirect(303, '/');
 	}

@@ -15,6 +15,13 @@
       "when": 1789433842565,
       "tag": "0001_auth_indexes",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1789453076854,
+      "tag": "0002_drop_receipts",
+      "breakpoints": true
     }
   ]
 }

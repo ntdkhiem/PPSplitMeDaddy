@@ -5,20 +5,20 @@ import { createExpense, softDeleteExpense } from './expenses';
 import { createPayment, softDeletePayment } from './payments';
 import { getHouseholdBalances } from './balances';
 
-function setup() {
-	const db = createTestDb();
-	const tyler = createMember(db, { name: 'Tyler' });
-	const khiem = createMember(db, { name: 'Khiem' });
-	const taro = createMember(db, { name: 'Taro' });
+async function setup() {
+	const db = await createTestDb();
+	const tyler = await createMember(db, { name: 'Tyler' });
+	const khiem = await createMember(db, { name: 'Khiem' });
+	const taro = await createMember(db, { name: 'Taro' });
 	return { db, tyler, khiem, taro };
 }
 
 describe('getHouseholdBalances', () => {
-	it('includes posted expenses and payments, excluding drafts and soft-deleted entries', () => {
-		const { db, tyler, khiem, taro } = setup();
+	it('includes posted expenses and payments, excluding drafts and soft-deleted entries', async () => {
+		const { db, tyler, khiem, taro } = await setup();
 
 		// Posted expense: Tyler pays 300, split equally -> Tyler +200, Khiem -100, Taro -100.
-		createExpense(
+		await createExpense(
 			db,
 			{
 				description: 'Groceries',
@@ -32,7 +32,7 @@ describe('getHouseholdBalances', () => {
 		);
 
 		// Draft expense: excluded from balances entirely.
-		createExpense(
+		await createExpense(
 			db,
 			{
 				description: 'Rent (pending amount)',
@@ -47,7 +47,7 @@ describe('getHouseholdBalances', () => {
 		);
 
 		// Soft-deleted posted expense: excluded from balances.
-		const deleted = createExpense(
+		const deleted = await createExpense(
 			db,
 			{
 				description: 'Cancelled dinner',
@@ -59,24 +59,24 @@ describe('getHouseholdBalances', () => {
 			},
 			khiem.id
 		);
-		softDeleteExpense(db, deleted.id);
+		await softDeleteExpense(db, deleted.id);
 
 		// Payment: Khiem pays Tyler 50 -> Khiem +50 (less owed), Tyler -50 (less owed to).
-		createPayment(
+		await createPayment(
 			db,
 			{ fromId: khiem.id, toId: tyler.id, amountCents: 50, date: '2026-08-03' },
 			khiem.id
 		);
 
 		// Soft-deleted payment: excluded from balances.
-		const deletedPayment = createPayment(
+		const deletedPayment = await createPayment(
 			db,
 			{ fromId: taro.id, toId: tyler.id, amountCents: 999, date: '2026-08-04' },
 			taro.id
 		);
-		softDeletePayment(db, deletedPayment.id);
+		await softDeletePayment(db, deletedPayment.id);
 
-		const { balances, transfers } = getHouseholdBalances(db);
+		const { balances, transfers } = await getHouseholdBalances(db);
 
 		// Ordered by member name: Khiem, Taro, Tyler.
 		expect(balances).toEqual([
@@ -93,23 +93,23 @@ describe('getHouseholdBalances', () => {
 
 		// Recording the suggested transfers as payments should bring every balance to 0.
 		for (const t of transfers) {
-			createPayment(
+			await createPayment(
 				db,
 				{ fromId: t.fromId, toId: t.toId, amountCents: t.amountCents, date: '2026-08-06' },
 				null
 			);
 		}
-		const after = getHouseholdBalances(db);
+		const after = await getHouseholdBalances(db);
 		for (const b of after.balances) expect(b.balanceCents).toBe(0);
 		expect(after.transfers).toEqual([]);
 	});
 
-	it('includes inactive members with zero balances', () => {
-		const { db, tyler, khiem, taro } = setup();
-		const inactive = createMember(db, { name: 'Inactive' });
-		updateMember(db, inactive.id, { active: false });
+	it('includes inactive members with zero balances', async () => {
+		const { db, tyler, khiem, taro } = await setup();
+		const inactive = await createMember(db, { name: 'Inactive' });
+		await updateMember(db, inactive.id, { active: false });
 
-		createExpense(
+		await createExpense(
 			db,
 			{
 				description: 'Coffee',
@@ -122,7 +122,7 @@ describe('getHouseholdBalances', () => {
 			tyler.id
 		);
 
-		const { balances } = getHouseholdBalances(db);
+		const { balances } = await getHouseholdBalances(db);
 		const names = balances.map((b) => b.memberId);
 		expect(names).toContain(inactive.id);
 		expect(balances.find((b) => b.memberId === inactive.id)?.balanceCents).toBe(0);

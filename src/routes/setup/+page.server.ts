@@ -1,4 +1,4 @@
-import { fail, redirect } from '@sveltejs/kit';
+import { error, fail, redirect } from '@sveltejs/kit';
 import { z } from 'zod';
 import type { Actions, PageServerLoad } from './$types';
 import { getDb, type DB } from '$lib/server/db';
@@ -10,6 +10,7 @@ import {
 	setSessionCookie
 } from '$lib/server/auth';
 import { countMembers, createMember } from '$lib/server/services/members';
+import { isSetupAllowed } from '$lib/server/setup-token';
 
 const schema = z.object({
 	name: z.string().trim().min(1, 'Name is required').max(60, 'Name is too long'),
@@ -22,14 +23,24 @@ const schema = z.object({
 
 type Errors = Partial<Record<'name' | 'email' | 'password' | 'others' | 'form', string>>;
 
-export const load: PageServerLoad = () => {
-	if (countMembers(getDb()) > 0) redirect(303, '/login');
+/** 404s unless the request carries `?token=<SETUP_TOKEN>` (see `isSetupAllowed`). */
+function requireSetupToken(url: URL) {
+	const production = process.env.NODE_ENV === 'production';
+	if (!isSetupAllowed(url.searchParams.get('token'), process.env.SETUP_TOKEN, production)) {
+		error(404, 'Not found');
+	}
+}
+
+export const load: PageServerLoad = async ({ url }) => {
+	if ((await countMembers(getDb())) > 0) redirect(303, '/login');
+	requireSetupToken(url);
 };
 
 export const actions: Actions = {
-	default: async ({ request, cookies }) => {
+	default: async ({ request, cookies, url }) => {
 		const db = getDb();
-		if (countMembers(db) > 0) redirect(303, '/login');
+		if ((await countMembers(db)) > 0) redirect(303, '/login');
+		requireSetupToken(url);
 
 		const form = Object.fromEntries(await request.formData());
 		const values = {
@@ -69,16 +80,16 @@ export const actions: Actions = {
 		const passwordHash = await hashPassword(password);
 		let adminId: string;
 		try {
-			adminId = db.transaction((tx) => {
+			adminId = await db.transaction(async (tx) => {
 				const t = tx as unknown as DB;
-				if (countMembers(t) > 0) throw new Error('already set up');
-				const admin = createMember(t, {
+				if ((await countMembers(t)) > 0) throw new Error('already set up');
+				const admin = await createMember(t, {
 					name,
 					email: normalizeEmail(email),
 					passwordHash,
 					role: 'admin'
 				});
-				for (const other of others) createMember(t, { name: other });
+				for (const other of others) await createMember(t, { name: other });
 				return admin.id;
 			});
 		} catch {
@@ -86,7 +97,7 @@ export const actions: Actions = {
 			redirect(303, '/login');
 		}
 
-		const session = createSession(db, adminId);
+		const session = await createSession(db, adminId);
 		setSessionCookie(cookies, session.token, session.expiresAt);
 		redirect(303, '/');
 	}

@@ -1,38 +1,25 @@
 import { redirect, type Handle } from '@sveltejs/kit';
-import { getDb } from '$lib/server/db';
+import { ensureMigrated, getDb } from '$lib/server/db';
 import {
 	deleteSessionCookie,
-	purgeExpiredAuth,
 	SESSION_COOKIE,
 	setSessionCookie,
 	validateSessionToken
 } from '$lib/server/auth';
 import { countMembers } from '$lib/server/services/members';
-import { startRecurringScheduler } from '$lib/server/recurring';
-import { building } from '$app/environment';
 
-/** Routes reachable without a session. */
-const PUBLIC_PREFIXES = ['/login', '/setup', '/invite/'];
-
-if (!building && process.env.NODE_ENV !== 'test') {
-	const db = getDb();
-	startRecurringScheduler(db);
-	const g = globalThis as typeof globalThis & { __ppSplitMeDaddyPurge?: NodeJS.Timeout };
-	if (!g.__ppSplitMeDaddyPurge) {
-		purgeExpiredAuth(db);
-		g.__ppSplitMeDaddyPurge = setInterval(() => purgeExpiredAuth(db), 24 * 60 * 60 * 1000);
-		g.__ppSplitMeDaddyPurge.unref();
-	}
-}
+/** Routes reachable without a session. `/api/cron` authenticates with CRON_SECRET instead. */
+const PUBLIC_PREFIXES = ['/login', '/setup', '/invite/', '/healthz', '/api/cron'];
 
 export const handle: Handle = async ({ event, resolve }) => {
+	await ensureMigrated();
 	const db = getDb();
 	const path = event.url.pathname;
 	event.locals.member = null;
 
 	const token = event.cookies.get(SESSION_COOKIE);
 	if (token) {
-		const session = validateSessionToken(db, token);
+		const session = await validateSessionToken(db, token);
 		if (session) {
 			event.locals.member = session.member;
 			setSessionCookie(event.cookies, token, session.expiresAt);
@@ -43,9 +30,10 @@ export const handle: Handle = async ({ event, resolve }) => {
 
 	const isPublic = PUBLIC_PREFIXES.some((p) => path === p || path.startsWith(p));
 
-	// First run: no members yet -> everyone goes to setup.
-	if (countMembers(db) === 0) {
-		if (path !== '/setup') redirect(303, '/setup');
+	// First run: no members yet -> everyone goes to setup (which 404s without the setup token).
+	// Only checked when nobody is logged in: a valid session implies members exist.
+	if (!event.locals.member && (await countMembers(db)) === 0) {
+		if (path !== '/setup' && path !== '/healthz' && path !== '/api/cron') redirect(303, '/setup');
 	} else if (!event.locals.member && !isPublic) {
 		redirect(303, `/login?redirectTo=${encodeURIComponent(path + event.url.search)}`);
 	}

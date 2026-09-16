@@ -14,7 +14,6 @@ export interface ExpenseInput {
 	category?: string | null;
 	notes?: string | null;
 	status?: 'posted' | 'draft';
-	receiptPath?: string | null;
 	recurringTemplateId?: string | null;
 	period?: string | null;
 }
@@ -26,11 +25,18 @@ export type ExpenseWithShares = Expense & { shares: ExpenseShare[] };
  * Drafts may have amountCents 0 and are stored with no shares (participants kept on the template).
  * Throws SplitError for invalid splits.
  */
-export function createExpense(db: DB, input: ExpenseInput, createdBy: string | null): ExpenseWithShares {
+export async function createExpense(
+	db: DB,
+	input: ExpenseInput,
+	createdBy: string | null
+): Promise<ExpenseWithShares> {
 	const isDraft = input.status === 'draft';
-	const shares = isDraft && input.amountCents === 0 ? [] : splitAmount(input.amountCents, input.splitMode, input.participants);
-	return db.transaction((tx) => {
-		const expense = tx
+	const shares =
+		isDraft && input.amountCents === 0
+			? []
+			: splitAmount(input.amountCents, input.splitMode, input.participants);
+	return db.transaction(async (tx) => {
+		const expense = await tx
 			.insert(expenses)
 			.values({
 				id: crypto.randomUUID(),
@@ -42,7 +48,6 @@ export function createExpense(db: DB, input: ExpenseInput, createdBy: string | n
 				category: input.category ?? null,
 				notes: input.notes ?? null,
 				status: input.status ?? 'posted',
-				receiptPath: input.receiptPath ?? null,
 				recurringTemplateId: input.recurringTemplateId ?? null,
 				period: input.period ?? null,
 				createdBy
@@ -50,16 +55,20 @@ export function createExpense(db: DB, input: ExpenseInput, createdBy: string | n
 			.returning()
 			.get();
 		const shareRows = shares.map((s) => ({ expenseId: expense.id, ...s }));
-		if (shareRows.length) tx.insert(expenseShares).values(shareRows).run();
+		if (shareRows.length) await tx.insert(expenseShares).values(shareRows).run();
 		return { ...expense, shares: shareRows };
 	});
 }
 
 /** Replaces all editable fields and recomputes shares. Pass status 'posted' to finalize a draft. */
-export function updateExpense(db: DB, id: string, input: ExpenseInput): ExpenseWithShares {
+export async function updateExpense(
+	db: DB,
+	id: string,
+	input: ExpenseInput
+): Promise<ExpenseWithShares> {
 	const shares = splitAmount(input.amountCents, input.splitMode, input.participants);
-	return db.transaction((tx) => {
-		const expense = tx
+	return db.transaction(async (tx) => {
+		const expense = await tx
 			.update(expenses)
 			.set({
 				description: input.description.trim(),
@@ -70,36 +79,31 @@ export function updateExpense(db: DB, id: string, input: ExpenseInput): ExpenseW
 				category: input.category ?? null,
 				notes: input.notes ?? null,
 				status: input.status ?? 'posted',
-				...(input.receiptPath !== undefined ? { receiptPath: input.receiptPath } : {}),
 				updatedAt: new Date()
 			})
 			.where(eq(expenses.id, id))
 			.returning()
 			.get();
 		if (!expense) throw new Error('Expense not found');
-		tx.delete(expenseShares).where(eq(expenseShares.expenseId, id)).run();
+		await tx.delete(expenseShares).where(eq(expenseShares.expenseId, id)).run();
 		const shareRows = shares.map((s) => ({ expenseId: id, ...s }));
-		tx.insert(expenseShares).values(shareRows).run();
+		await tx.insert(expenseShares).values(shareRows).run();
 		return { ...expense, shares: shareRows };
 	});
 }
 
-export function setReceiptPath(db: DB, id: string, receiptPath: string | null): void {
-	db.update(expenses).set({ receiptPath, updatedAt: new Date() }).where(eq(expenses.id, id)).run();
+export async function softDeleteExpense(db: DB, id: string): Promise<void> {
+	await db.update(expenses).set({ deletedAt: new Date() }).where(eq(expenses.id, id)).run();
 }
 
-export function softDeleteExpense(db: DB, id: string): void {
-	db.update(expenses).set({ deletedAt: new Date() }).where(eq(expenses.id, id)).run();
-}
-
-export function getExpense(db: DB, id: string): ExpenseWithShares | undefined {
-	const expense = db
+export async function getExpense(db: DB, id: string): Promise<ExpenseWithShares | undefined> {
+	const expense = await db
 		.select()
 		.from(expenses)
 		.where(and(eq(expenses.id, id), isNull(expenses.deletedAt)))
 		.get();
 	if (!expense) return undefined;
-	const shares = db.select().from(expenseShares).where(eq(expenseShares.expenseId, id)).all();
+	const shares = await db.select().from(expenseShares).where(eq(expenseShares.expenseId, id)).all();
 	return { ...expense, shares };
 }
 
@@ -114,14 +118,17 @@ export interface ExpenseFilter {
 }
 
 /** Non-deleted expenses, newest date first, each with shares. */
-export function listExpenses(db: DB, filter: ExpenseFilter = {}): ExpenseWithShares[] {
+export async function listExpenses(
+	db: DB,
+	filter: ExpenseFilter = {}
+): Promise<ExpenseWithShares[]> {
 	const conds = [isNull(expenses.deletedAt)];
 	if (filter.status) conds.push(eq(expenses.status, filter.status));
 	if (filter.search) {
 		const q = `%${filter.search}%`;
 		conds.push(or(like(expenses.description, q), like(expenses.category, q))!);
 	}
-	let rows = db
+	let rows = await db
 		.select()
 		.from(expenses)
 		.where(and(...conds))
@@ -132,7 +139,7 @@ export function listExpenses(db: DB, filter: ExpenseFilter = {}): ExpenseWithSha
 
 	const ids = rows.map((e) => e.id);
 	const allShares = ids.length
-		? db.select().from(expenseShares).where(inArray(expenseShares.expenseId, ids)).all()
+		? await db.select().from(expenseShares).where(inArray(expenseShares.expenseId, ids)).all()
 		: [];
 	const byExpense = new Map<string, ExpenseShare[]>();
 	for (const s of allShares) {

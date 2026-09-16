@@ -66,7 +66,7 @@ export const actions: Actions = {
 		if (!email || !password || password.length > 1024) return invalid();
 
 		const db = getDb();
-		const member = getMemberByEmail(db, email);
+		const member = await getMemberByEmail(db, email);
 		if (!member || !member.passwordHash || !member.active) {
 			// Burn comparable time so unknown emails aren't distinguishable by timing.
 			await verifyPassword(await getDummyHash(), password);
@@ -75,7 +75,7 @@ export const actions: Actions = {
 		if (!(await verifyPassword(member.passwordHash, password))) return invalid();
 
 		failures.delete(key);
-		const session = createSession(db, member.id);
+		const session = await createSession(db, member.id);
 		setSessionCookie(cookies, session.token, session.expiresAt);
 		redirect(303, safeRedirect(url.searchParams.get('redirectTo')));
 	}

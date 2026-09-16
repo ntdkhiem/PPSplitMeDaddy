@@ -1,6 +1,10 @@
 import type { PageServerLoad } from './$types';
 import { getDb } from '$lib/server/db';
-import { listExpenses, type ExpenseFilter, type ExpenseWithShares } from '$lib/server/services/expenses';
+import {
+	listExpenses,
+	type ExpenseFilter,
+	type ExpenseWithShares
+} from '$lib/server/services/expenses';
 import { listMembers } from '$lib/server/services/members';
 
 interface MonthGroup {
@@ -15,7 +19,7 @@ function monthLabel(key: string): string {
 	return new Date(y, m - 1, 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
 }
 
-export const load: PageServerLoad = ({ url, locals }) => {
+export const load: PageServerLoad = async ({ url, locals }) => {
 	const db = getDb();
 
 	const search = url.searchParams.get('search')?.trim() ?? '';
@@ -27,7 +31,10 @@ export const load: PageServerLoad = ({ url, locals }) => {
 	if (member) filter.memberId = member;
 	if (statusParam === 'posted' || statusParam === 'draft') filter.status = statusParam;
 
-	const all = listExpenses(db, filter);
+	const [all, members] = await Promise.all([
+		listExpenses(db, filter),
+		listMembers(db, { includeInactive: true })
+	]);
 	const drafts = all.filter((e) => e.status === 'draft');
 	const posted = all.filter((e) => e.status === 'posted');
 
@@ -46,7 +53,7 @@ export const load: PageServerLoad = ({ url, locals }) => {
 	return {
 		drafts,
 		groups,
-		members: listMembers(db, { includeInactive: true }),
+		members,
 		meId: locals.member!.id,
 		filters: { search, member, status: statusParam }
 	};

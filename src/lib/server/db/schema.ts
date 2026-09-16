@@ -103,8 +103,6 @@ export const expenses = sqliteTable(
 		status: text('status', { enum: ['posted', 'draft'] })
 			.notNull()
 			.default('posted'),
-		/** file name inside RECEIPTS_DIR */
-		receiptPath: text('receipt_path'),
 		recurringTemplateId: text('recurring_template_id').references(() => recurringTemplates.id),
 		/** YYYY-MM for recurring-generated expenses */
 		period: text('period'),

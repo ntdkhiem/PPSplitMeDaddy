@@ -39,10 +39,10 @@ const parsedWorkbookSchema = z.object({
 	people: z.array(z.string())
 });
 
-export const load: PageServerLoad = (event) => {
+export const load: PageServerLoad = async (event) => {
 	requireAdmin(event);
 	return {
-		members: listMembers(getDb())
+		members: await listMembers(getDb())
 	};
 };
 
@@ -111,7 +111,7 @@ export const actions: Actions = {
 			return fail(400, { error: dateResult.error.issues[0].message, parsed, importDate: today() });
 		}
 
-		const memberIds = new Set(listMembers(db).map((m) => m.id));
+		const memberIds = new Set((await listMembers(db)).map((m) => m.id));
 		const mapping: PersonMapping = {};
 		for (let i = 0; i < parsed.people.length; i++) {
 			const name = parsed.people[i];
@@ -132,7 +132,7 @@ export const actions: Actions = {
 
 		const skipExisting = form.get('skipExisting') === 'on';
 
-		const result = commitImport(db, parsed, mapping, {
+		const result = await commitImport(db, parsed, mapping, {
 			date: dateResult.data,
 			createdBy: me?.id ?? null,
 			skipExisting

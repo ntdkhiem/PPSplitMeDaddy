@@ -14,10 +14,12 @@ export interface HouseholdBalances {
  * Loads all posted, non-deleted expenses (with shares) and non-deleted payments, and returns
  * computeBalances() over all members (active and inactive) plus settleUp() transfers.
  */
-export function getHouseholdBalances(db: DB): HouseholdBalances {
-	const members = listMembers(db, { includeInactive: true });
-	const expenses = listExpenses(db, { status: 'posted' });
-	const payments = listPayments(db);
+export async function getHouseholdBalances(db: DB): Promise<HouseholdBalances> {
+	const [members, expenses, payments] = await Promise.all([
+		listMembers(db, { includeInactive: true }),
+		listExpenses(db, { status: 'posted' }),
+		listPayments(db)
+	]);
 
 	const memberIds = members.map((m) => m.id);
 	const ledgerExpenses = expenses.map((e) => ({

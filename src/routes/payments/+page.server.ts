@@ -14,13 +14,16 @@ const paymentSchema = z.object({
 	date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Choose a valid date')
 });
 
-export const load: PageServerLoad = ({ locals, url }) => {
+export const load: PageServerLoad = async ({ locals, url }) => {
 	const db = getDb();
-	const members = listMembers(db, { includeInactive: true });
+	const memberFilter = url.searchParams.get('member') ?? '';
+	const [members, paymentRows] = await Promise.all([
+		listMembers(db, { includeInactive: true }),
+		listPayments(db, { memberId: memberFilter || undefined })
+	]);
 	const membersById = new Map(members.map((m) => [m.id, m]));
 
-	const memberFilter = url.searchParams.get('member') ?? '';
-	const payments = listPayments(db, { memberId: memberFilter || undefined }).map((p) => ({
+	const payments = paymentRows.map((p) => ({
 		id: p.id,
 		date: p.date,
 		fromId: p.fromId,
@@ -78,13 +81,14 @@ export const actions: Actions = {
 			const errors: Record<string, string> = { toId: 'Payer and recipient must differ' };
 			return fail(400, { errors, values });
 		}
-		const validIds = new Set(listMembers(db, { includeInactive: true }).map((m) => m.id));
+		const allMembers = await listMembers(db, { includeInactive: true });
+		const validIds = new Set(allMembers.map((m) => m.id));
 		if (!validIds.has(parsed.data.fromId) || !validIds.has(parsed.data.toId)) {
 			const errors: Record<string, string> = { toId: 'Unknown member' };
 			return fail(400, { errors, values });
 		}
 
-		createPayment(
+		await createPayment(
 			db,
 			{
 				fromId: parsed.data.fromId,
@@ -103,7 +107,7 @@ export const actions: Actions = {
 		const form = await request.formData();
 		const id = String(form.get('id') ?? '');
 		if (!id) return fail(400, { error: 'Missing payment id' });
-		softDeletePayment(db, id);
+		await softDeletePayment(db, id);
 		return { success: 'Payment deleted' };
 	}
 };

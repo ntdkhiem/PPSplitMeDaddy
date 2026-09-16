@@ -57,8 +57,6 @@
 				}
 	);
 
-	const receiptIsPdf = $derived(data.expense.receiptPath?.endsWith('.pdf') ?? false);
-
 	function formatTs(d: Date | null): string {
 		return d ? new Date(d).toLocaleString() : '—';
 	}
@@ -70,31 +68,6 @@
 
 <div class="page max-w-2xl">
 	<h1 class="page-title">Edit expense</h1>
-
-	{#if data.expense.receiptPath}
-		<div class="card mb-4">
-			<h2 class="mb-2 font-medium">Receipt</h2>
-			{#if receiptIsPdf}
-				<a
-					class="text-emerald-700 hover:underline"
-					href="/receipts/{data.expense.receiptPath}"
-					target="_blank"
-					rel="noopener"
-				>
-					Open PDF receipt
-				</a>
-			{:else}
-				<img
-					src="/receipts/{data.expense.receiptPath}"
-					alt="Receipt"
-					class="max-h-80 rounded-lg border border-slate-200"
-				/>
-			{/if}
-			<form method="POST" action="?/removeReceipt" use:enhance class="mt-2">
-				<button class="btn btn-secondary">Remove receipt</button>
-			</form>
-		</div>
-	{/if}
 
 	<div class="card">
 		<ExpenseForm

@@ -31,8 +31,27 @@ export function centsToInput(cents: number): string {
 	return (cents / 100).toFixed(2);
 }
 
-/** Today's date as YYYY-MM-DD in local time. */
-export function today(): string {
-	const d = new Date();
+/**
+ * `d` as YYYY-MM-DD in the household time zone: APP_TZ on the server (e.g. America/Los_Angeles; Vercel
+ * runs in UTC and reserves TZ), otherwise the runtime's local time (the browser's, in client code).
+ */
+export function localDate(d: Date): string {
+	const tz = (globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env
+		?.APP_TZ;
+	if (tz) {
+		const parts = new Intl.DateTimeFormat('en-US', {
+			timeZone: tz,
+			year: 'numeric',
+			month: '2-digit',
+			day: '2-digit'
+		}).formatToParts(d);
+		const get = (type: string) => parts.find((p) => p.type === type)!.value;
+		return `${get('year')}-${get('month')}-${get('day')}`;
+	}
 	return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+/** Today's date as YYYY-MM-DD (see localDate). */
+export function today(): string {
+	return localDate(new Date());
 }

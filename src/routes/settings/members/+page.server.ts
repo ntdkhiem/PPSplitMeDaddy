@@ -26,16 +26,16 @@ async function readForm(request: Request) {
 	return Object.fromEntries(await request.formData()) as Record<string, unknown>;
 }
 
-function loadTarget(id: unknown) {
+async function loadTarget(id: unknown) {
 	const parsed = idSchema.safeParse(id);
-	const member = parsed.success ? getMember(getDb(), parsed.data) : undefined;
+	const member = parsed.success ? await getMember(getDb(), parsed.data) : undefined;
 	if (!member) error(404, 'Member not found');
 	return member;
 }
 
-export const load: PageServerLoad = ({ locals }) => {
+export const load: PageServerLoad = async ({ locals }) => {
 	return {
-		members: listMembers(getDb(), { includeInactive: true }),
+		members: await listMembers(getDb(), { includeInactive: true }),
 		isAdmin: locals.member?.role === 'admin',
 		meId: locals.member?.id ?? null
 	};
@@ -51,17 +51,17 @@ export const actions: Actions = {
 			return fail(400, { action: 'add', error: parsed.error.issues[0].message, values });
 		}
 		const db = getDb();
-		if (getMemberByName(db, parsed.data)) {
+		if (await getMemberByName(db, parsed.data)) {
 			return fail(400, { action: 'add', error: 'A member with that name already exists', values });
 		}
-		createMember(db, { name: parsed.data });
+		await createMember(db, { name: parsed.data });
 		return { action: 'add', success: `Added ${parsed.data}` };
 	},
 
 	rename: async (event) => {
 		requireAdmin(event);
 		const form = await readForm(event.request);
-		const target = loadTarget(form.id);
+		const target = await loadTarget(form.id);
 		const parsed = nameSchema.safeParse(form.name);
 		if (!parsed.success) {
 			return fail(400, {
@@ -71,7 +71,7 @@ export const actions: Actions = {
 			});
 		}
 		const db = getDb();
-		const existing = getMemberByName(db, parsed.data);
+		const existing = await getMemberByName(db, parsed.data);
 		if (existing && existing.id !== target.id) {
 			return fail(400, {
 				action: 'rename',
@@ -79,14 +79,14 @@ export const actions: Actions = {
 				error: 'A member with that name already exists'
 			});
 		}
-		updateMember(db, target.id, { name: parsed.data });
+		await updateMember(db, target.id, { name: parsed.data });
 		return { action: 'rename', memberId: target.id, success: 'Renamed' };
 	},
 
 	setActive: async (event) => {
 		const me = requireAdmin(event);
 		const form = await readForm(event.request);
-		const target = loadTarget(form.id);
+		const target = await loadTarget(form.id);
 		const active = form.active === 'true';
 		const db = getDb();
 		if (!active) {
@@ -97,7 +97,7 @@ export const actions: Actions = {
 					error: "You can't deactivate yourself"
 				});
 			}
-			if (target.role === 'admin' && target.active && countActiveAdmins(db) <= 1) {
+			if (target.role === 'admin' && target.active && (await countActiveAdmins(db)) <= 1) {
 				return fail(400, {
 					action: 'setActive',
 					memberId: target.id,
@@ -105,8 +105,8 @@ export const actions: Actions = {
 				});
 			}
 		}
-		updateMember(db, target.id, { active });
-		if (!active) invalidateMemberSessions(db, target.id);
+		await updateMember(db, target.id, { active });
+		if (!active) await invalidateMemberSessions(db, target.id);
 		return {
 			action: 'setActive',
 			memberId: target.id,
@@ -117,7 +117,7 @@ export const actions: Actions = {
 	setRole: async (event) => {
 		const me = requireAdmin(event);
 		const form = await readForm(event.request);
-		const target = loadTarget(form.id);
+		const target = await loadTarget(form.id);
 		const role = z.enum(['admin', 'member']).safeParse(form.role);
 		if (!role.success) {
 			return fail(400, { action: 'setRole', memberId: target.id, error: 'Invalid role' });
@@ -131,7 +131,7 @@ export const actions: Actions = {
 					error: "You can't demote yourself"
 				});
 			}
-			if (target.active && countActiveAdmins(db) <= 1) {
+			if (target.active && (await countActiveAdmins(db)) <= 1) {
 				return fail(400, {
 					action: 'setRole',
 					memberId: target.id,
@@ -139,14 +139,14 @@ export const actions: Actions = {
 				});
 			}
 		}
-		updateMember(db, target.id, { role: role.data });
+		await updateMember(db, target.id, { role: role.data });
 		return { action: 'setRole', memberId: target.id, success: 'Role updated' };
 	},
 
 	invite: async (event) => {
 		requireAdmin(event);
 		const form = await readForm(event.request);
-		const target = loadTarget(form.id);
+		const target = await loadTarget(form.id);
 		if (!target.active) {
 			return fail(400, {
 				action: 'invite',
@@ -154,7 +154,7 @@ export const actions: Actions = {
 				error: 'Activate this member first'
 			});
 		}
-		const token = createInvite(getDb(), target.id);
+		const token = await createInvite(getDb(), target.id);
 		return {
 			action: 'invite',
 			memberId: target.id,

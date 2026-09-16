@@ -18,8 +18,8 @@ const fieldsSchema = z.object({
 	startPeriod: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/, 'Choose a start month')
 });
 
-export const load: PageServerLoad = ({ locals }) => {
-	const members = listMembers(getDb(), { includeInactive: true });
+export const load: PageServerLoad = async ({ locals }) => {
+	const members = await listMembers(getDb(), { includeInactive: true });
 	return {
 		members,
 		defaultPayerId: locals.member?.id ?? '',
@@ -47,7 +47,7 @@ export const actions: Actions = {
 			return fail(400, { error: parsed.error.issues[0].message, values });
 		}
 
-		const memberIds = new Set(listMembers(db, { includeInactive: true }).map((m) => m.id));
+		const memberIds = new Set((await listMembers(db, { includeInactive: true })).map((m) => m.id));
 		if (!memberIds.has(parsed.data.payerId)) {
 			return fail(400, { error: 'Choose who paid', values });
 		}
@@ -70,7 +70,7 @@ export const actions: Actions = {
 		}
 
 		try {
-			createTemplate(
+			await createTemplate(
 				db,
 				{
 					description: parsed.data.description,
@@ -91,7 +91,7 @@ export const actions: Actions = {
 			});
 		}
 
-		const created = generateDueExpenses(db);
+		const created = await generateDueExpenses(db);
 		redirect(303, `/recurring?created=${created}`);
 	}
 };

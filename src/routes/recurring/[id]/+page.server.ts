@@ -23,24 +23,24 @@ const fieldsSchema = z.object({
 	startPeriod: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/, 'Choose a start month')
 });
 
-function loadTemplateOr404(id: string) {
-	const template = getTemplate(getDb(), id);
+async function loadTemplateOr404(id: string) {
+	const template = await getTemplate(getDb(), id);
 	if (!template) error(404, 'Recurring template not found');
 	return template;
 }
 
-export const load: PageServerLoad = ({ params }) => {
-	const template = loadTemplateOr404(params.id);
-	return {
-		template,
-		members: listMembers(getDb(), { includeInactive: true })
-	};
+export const load: PageServerLoad = async ({ params }) => {
+	const [template, members] = await Promise.all([
+		loadTemplateOr404(params.id),
+		listMembers(getDb(), { includeInactive: true })
+	]);
+	return { template, members };
 };
 
 export const actions: Actions = {
 	update: async ({ request, params }) => {
 		const db = getDb();
-		const template = loadTemplateOr404(params.id);
+		const template = await loadTemplateOr404(params.id);
 		const form = await request.formData();
 		const raw = Object.fromEntries(form);
 		const values = {
@@ -58,7 +58,7 @@ export const actions: Actions = {
 			return fail(400, { error: parsed.error.issues[0].message, values });
 		}
 
-		const memberIds = new Set(listMembers(db, { includeInactive: true }).map((m) => m.id));
+		const memberIds = new Set((await listMembers(db, { includeInactive: true })).map((m) => m.id));
 		if (!memberIds.has(parsed.data.payerId)) {
 			return fail(400, { error: 'Choose who paid', values });
 		}
@@ -81,7 +81,7 @@ export const actions: Actions = {
 		}
 
 		try {
-			updateTemplate(db, template.id, {
+			await updateTemplate(db, template.id, {
 				description: parsed.data.description,
 				category: optionalText(form, 'category'),
 				amountCents,
@@ -99,15 +99,15 @@ export const actions: Actions = {
 			});
 		}
 
-		const created = generateDueExpenses(db);
+		const created = await generateDueExpenses(db);
 		redirect(303, `/recurring?created=${created}`);
 	},
 
 	delete: async ({ params }) => {
 		const db = getDb();
-		const template = loadTemplateOr404(params.id);
-		deleteTemplate(db, template.id);
-		const stillExists = getTemplate(db, template.id);
+		const template = await loadTemplateOr404(params.id);
+		await deleteTemplate(db, template.id);
+		const stillExists = await getTemplate(db, template.id);
 		redirect(303, `/recurring?${stillExists ? 'deactivated' : 'deleted'}=1`);
 	}
 };

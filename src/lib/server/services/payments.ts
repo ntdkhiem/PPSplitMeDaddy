@@ -10,7 +10,11 @@ export interface PaymentInput {
 	note?: string | null;
 }
 
-export function createPayment(db: DB, input: PaymentInput, createdBy: string | null): Payment {
+export async function createPayment(
+	db: DB,
+	input: PaymentInput,
+	createdBy: string | null
+): Promise<Payment> {
 	if (input.fromId === input.toId) throw new Error('Payer and recipient must differ');
 	if (!Number.isInteger(input.amountCents) || input.amountCents <= 0)
 		throw new Error('Payment amount must be positive');
@@ -21,11 +25,14 @@ export function createPayment(db: DB, input: PaymentInput, createdBy: string | n
 		.get();
 }
 
-export function softDeletePayment(db: DB, id: string): void {
-	db.update(payments).set({ deletedAt: new Date() }).where(eq(payments.id, id)).run();
+export async function softDeletePayment(db: DB, id: string): Promise<void> {
+	await db.update(payments).set({ deletedAt: new Date() }).where(eq(payments.id, id)).run();
 }
 
-export function listPayments(db: DB, filter: { memberId?: string; limit?: number } = {}): Payment[] {
+export async function listPayments(
+	db: DB,
+	filter: { memberId?: string; limit?: number } = {}
+): Promise<Payment[]> {
 	const conds = [isNull(payments.deletedAt)];
 	if (filter.memberId)
 		conds.push(or(eq(payments.fromId, filter.memberId), eq(payments.toId, filter.memberId))!);

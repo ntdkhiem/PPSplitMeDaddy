@@ -220,13 +220,13 @@ export interface ImportResult {
  * notes = "Imported from <sheetName> row <row>". If `skipExisting` is true, rows whose notes already
  * exist on a non-deleted expense are skipped (makes re-importing the same file safe).
  */
-export function commitImport(
+export async function commitImport(
 	db: DB,
 	parsed: ParsedWorkbook,
 	mapping: PersonMapping,
 	options: { date: string; createdBy: string | null; skipExisting?: boolean }
-): ImportResult {
-	return db.transaction((tx) => {
+): Promise<ImportResult> {
+	return db.transaction(async (tx) => {
 		let created = 0;
 		const skipped: string[] = [];
 
@@ -245,7 +245,7 @@ export function commitImport(
 				const notes = `Imported from ${sheet.sheetName} row ${row.row}`;
 
 				if (options.skipExisting) {
-					const existing = tx
+					const existing = await tx
 						.select({ id: expenses.id })
 						.from(expenses)
 						.where(and(eq(expenses.notes, notes), isNull(expenses.deletedAt)))
@@ -267,8 +267,8 @@ export function commitImport(
 					continue;
 				}
 
-				createExpense(
-					tx,
+				await createExpense(
+					tx as unknown as DB,
 					{
 						description: row.description,
 						amountCents: row.amountCents,

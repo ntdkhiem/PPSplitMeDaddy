@@ -13,14 +13,16 @@ import {
 	type ActivityPayment
 } from '$lib/components/dashboard/activity';
 
-export const load: PageServerLoad = ({ locals }) => {
+export const load: PageServerLoad = async ({ locals }) => {
 	const db = getDb();
-	const members = listMembers(db, { includeInactive: true });
-	const { balances, transfers } = getHouseholdBalances(db);
-
-	const draftExpenses = listExpenses(db, { status: 'draft' });
-	const recentExpenses = listExpenses(db, { status: 'posted', limit: 10 });
-	const recentPayments = listPayments(db, { limit: 10 });
+	const [members, { balances, transfers }, draftExpenses, recentExpenses, recentPayments] =
+		await Promise.all([
+			listMembers(db, { includeInactive: true }),
+			getHouseholdBalances(db),
+			listExpenses(db, { status: 'draft' }),
+			listExpenses(db, { status: 'posted', limit: 10 }),
+			listPayments(db, { limit: 10 })
+		]);
 
 	const activityExpenses: ActivityExpense[] = recentExpenses.map((e) => ({
 		kind: 'expense',
@@ -74,13 +76,16 @@ export const actions: Actions = {
 		if (fromId === toId) {
 			return fail(400, { error: 'Payer and recipient must differ' });
 		}
-		const from = getMember(db, fromId);
-		const to = getMember(db, toId);
+		const [from, to] = await Promise.all([getMember(db, fromId), getMember(db, toId)]);
 		if (!from || !to) {
 			return fail(400, { error: 'Unknown member' });
 		}
 
-		createPayment(db, { fromId, toId, amountCents, date: today() }, locals.member?.id ?? null);
+		await createPayment(
+			db,
+			{ fromId, toId, amountCents, date: today() },
+			locals.member?.id ?? null
+		);
 		return { success: `Recorded ${from.name} → ${to.name}: ${formatMoney(amountCents)}` };
 	}
 };
