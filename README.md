@@ -66,11 +66,8 @@ does after 10 idle days on the free plan. `GET /healthz` returns 200 for uptime 
 
 ### Backups
 
-`.github/workflows/db-backup.yml` dumps the database nightly, encrypts it with GPG and keeps it as a
-workflow artifact for 90 days. Add the repo secrets `TURSO_API_TOKEN` (`turso auth api-tokens mint gh-backup`),
-`TURSO_DB_NAME` and `BACKUP_PASSWORD`, then run it once by hand from the Actions tab to check it works.
-Restore with `gpg -d backup.sql.gpg > backup.sql && turso db create restored --from-dump backup.sql`.
-Turso's own point-in-time restore on the free plan only covers the last day.
+There is no automated backup. Turso's point-in-time restore on the free plan covers the last day; for
+anything older, dump by hand with `turso db shell <db> .dump > backup.sql`.
 
 ## Notes
 
