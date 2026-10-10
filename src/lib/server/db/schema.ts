@@ -155,6 +155,19 @@ export const payments = sqliteTable(
 	(t) => [index('payments_date_idx').on(t.date)]
 );
 
+/**
+ * Monthly grocery budget. A row applies from its period onward until a later row replaces it,
+ * so the budget for month P is the row with the greatest period <= P.
+ */
+export const groceryBudgets = sqliteTable('grocery_budgets', {
+	/** first month (YYYY-MM) this budget applies to */
+	period: text('period').primaryKey(),
+	/** non-negative */
+	amountCents: integer('amount_cents').notNull(),
+	updatedBy: text('updated_by').references(() => members.id),
+	createdAt: createdAt()
+});
+
 export type Member = typeof members.$inferSelect;
 export type Expense = typeof expenses.$inferSelect;
 export type ExpenseShare = typeof expenseShares.$inferSelect;

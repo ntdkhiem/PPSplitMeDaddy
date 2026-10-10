@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray, isNull, like, or } from 'drizzle-orm';
+import { and, desc, eq, inArray, isNull, like, or, sql } from 'drizzle-orm';
 import { splitAmount } from '$lib/ledger';
 import type { ShareInput, SplitMode } from '$lib/types';
 import type { DB } from '../db';
@@ -111,6 +111,8 @@ export interface ExpenseFilter {
 	/** matches payer or participant */
 	memberId?: string;
 	search?: string;
+	/** exact category, case-insensitive (unlike `search`, which also matches descriptions) */
+	category?: string;
 	status?: 'posted' | 'draft';
 	from?: string;
 	to?: string;
@@ -127,6 +129,9 @@ export async function listExpenses(
 	if (filter.search) {
 		const q = `%${filter.search}%`;
 		conds.push(or(like(expenses.description, q), like(expenses.category, q))!);
+	}
+	if (filter.category) {
+		conds.push(sql`lower(${expenses.category}) = lower(${filter.category})`);
 	}
 	let rows = await db
 		.select()

@@ -4,15 +4,17 @@ import { getDb } from '$lib/server/db';
 import { listMembers } from '$lib/server/services/members';
 import { createExpense, listExpenses } from '$lib/server/services/expenses';
 import { SplitError } from '$lib/ledger';
-import { distinctCategories } from '$lib/components/expenses/categories';
+import { GROCERY_CATEGORY, categoryOptions } from '$lib/components/expenses/categories';
 import { parseExpenseForm } from '$lib/components/expenses/parse-expense-form';
 
-export const load: PageServerLoad = async () => {
+export const load: PageServerLoad = async ({ url }) => {
 	const db = getDb();
 	const [members, expenses] = await Promise.all([listMembers(db), listExpenses(db)]);
 	return {
 		members,
-		categories: distinctCategories(expenses)
+		categories: categoryOptions(expenses),
+		/** prefilled category, e.g. from the groceries page's "Add grocery" link */
+		category: url.searchParams.get('category')?.trim().slice(0, 60) ?? ''
 	};
 };
 
@@ -53,6 +55,7 @@ export const actions: Actions = {
 			throw err;
 		}
 
-		redirect(303, '/expenses');
+		const isGrocery = parsedForm.data.category?.toLowerCase() === GROCERY_CATEGORY.toLowerCase();
+		redirect(303, isGrocery ? '/groceries' : '/expenses');
 	}
 };

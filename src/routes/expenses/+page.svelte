@@ -1,4 +1,5 @@
 <script lang="ts">
+	import ExpenseRow from '$lib/components/expenses/ExpenseRow.svelte';
 	import { formatMoney } from '$lib/money';
 
 	let { data } = $props();
@@ -85,29 +86,7 @@
 			</div>
 			<ul class="space-y-2">
 				{#each g.expenses as e (e.id)}
-					{@const mine = e.shares.find((s) => s.memberId === data.meId)}
-					{@const payer = data.members.find((m) => m.id === e.payerId)}
-					<li class="card">
-						<a
-							href="/expenses/{e.id}"
-							class="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between sm:gap-4"
-						>
-							<div class="min-w-0 flex-1">
-								<p class="font-medium break-words">{e.description}</p>
-								<p class="muted">
-									{e.date} · {payer?.name ?? 'Unknown'}{e.category ? ` · ${e.category}` : ''}
-								</p>
-							</div>
-							<div class="flex shrink-0 items-center gap-4 text-sm">
-								<span class="muted">You: {mine ? formatMoney(mine.amountCents) : '—'}</span>
-								{#if e.amountCents < 0}
-									<span class="amount-neg">Refund {formatMoney(-e.amountCents)}</span>
-								{:else}
-									<span class="font-medium tabular-nums">{formatMoney(e.amountCents)}</span>
-								{/if}
-							</div>
-						</a>
-					</li>
+					<ExpenseRow expense={e} members={data.members} meId={data.meId} />
 				{/each}
 			</ul>
 		</section>

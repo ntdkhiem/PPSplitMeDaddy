@@ -1,23 +1,8 @@
 import type { PageServerLoad } from './$types';
 import { getDb } from '$lib/server/db';
-import {
-	listExpenses,
-	type ExpenseFilter,
-	type ExpenseWithShares
-} from '$lib/server/services/expenses';
+import { listExpenses, type ExpenseFilter } from '$lib/server/services/expenses';
 import { listMembers } from '$lib/server/services/members';
-
-interface MonthGroup {
-	key: string;
-	label: string;
-	totalCents: number;
-	expenses: ExpenseWithShares[];
-}
-
-function monthLabel(key: string): string {
-	const [y, m] = key.split('-').map(Number);
-	return new Date(y, m - 1, 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
-}
+import { groupByMonth } from '$lib/components/expenses/months';
 
 export const load: PageServerLoad = async ({ url, locals }) => {
 	const db = getDb();
@@ -38,17 +23,7 @@ export const load: PageServerLoad = async ({ url, locals }) => {
 	const drafts = all.filter((e) => e.status === 'draft');
 	const posted = all.filter((e) => e.status === 'posted');
 
-	const groups: MonthGroup[] = [];
-	for (const e of posted) {
-		const key = e.date.slice(0, 7);
-		let group = groups.at(-1);
-		if (!group || group.key !== key) {
-			group = { key, label: monthLabel(key), totalCents: 0, expenses: [] };
-			groups.push(group);
-		}
-		group.totalCents += e.amountCents;
-		group.expenses.push(e);
-	}
+	const groups = groupByMonth(posted);
 
 	return {
 		drafts,

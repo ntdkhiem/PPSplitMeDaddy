@@ -10,7 +10,7 @@ import {
 	type ExpenseWithShares
 } from '$lib/server/services/expenses';
 import { SplitError } from '$lib/ledger';
-import { distinctCategories } from '$lib/components/expenses/categories';
+import { categoryOptions } from '$lib/components/expenses/categories';
 import { parseExpenseForm } from '$lib/components/expenses/parse-expense-form';
 
 async function loadExpenseOr404(db: DB, id: string): Promise<ExpenseWithShares> {
@@ -43,7 +43,7 @@ export const load: PageServerLoad = async ({ params }) => {
 	return {
 		expense,
 		members,
-		categories: distinctCategories(expenses)
+		categories: categoryOptions(expenses)
 	};
 };
 

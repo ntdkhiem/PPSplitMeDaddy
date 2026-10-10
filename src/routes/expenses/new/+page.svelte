@@ -33,7 +33,7 @@
 					isRefund: false,
 					date: today(),
 					payerId: data.member?.id ?? data.members[0]?.id ?? '',
-					category: '',
+					category: data.category,
 					notes: '',
 					splitMode: 'equal' as SplitMode,
 					participants: data.members.map((m) => ({ memberId: m.id }))
