@@ -8,6 +8,15 @@
 	let editingBudget = $state(false);
 	let saving = $state(false);
 
+	const nameById = $derived(new Map(data.members.map((m) => [m.id, m.name])));
+	const memberName = (id: string) => nameById.get(id) ?? 'Unknown';
+	/** active members, plus inactive ones who still have a grocery balance */
+	const shownBalances = $derived(
+		data.balances.filter(
+			(b) => b.balanceCents !== 0 || data.members.find((m) => m.id === b.memberId)?.active
+		)
+	);
+
 	const fund = $derived(data.fund);
 	const showBudgetForm = $derived(
 		editingBudget || fund.budgetCents === null || !!form?.budgetError
@@ -111,6 +120,79 @@
 			{#if form?.budgetError}<p class="error-text mt-1">{form.budgetError}</p>{/if}
 			<p class="muted mt-2">
 				Applies from {data.month.label} onward; earlier months keep their budget.
+			</p>
+		{/if}
+	</section>
+
+	<section class="card mb-6" aria-labelledby="owe-heading">
+		<h2 id="owe-heading" class="font-medium">Who owes whom</h2>
+		<p class="muted mb-3">
+			Groceries only, all time. Payments marked “For groceries” count toward this.
+		</p>
+		{#if form?.paymentSuccess}
+			<p class="mb-3 rounded-md bg-emerald-50 p-2 text-sm text-emerald-800" aria-live="polite">
+				{form.paymentSuccess}
+			</p>
+		{:else if form?.paymentError}
+			<p class="error-text mb-3" role="alert">{form.paymentError}</p>
+		{/if}
+
+		{#if data.transfers.length === 0}
+			<p class="text-sm text-slate-700">Everyone's even on groceries.</p>
+		{:else}
+			<ul class="space-y-2">
+				{#each data.transfers as t (t.fromId + t.toId + t.amountCents)}
+					<li class="flex flex-wrap items-center justify-between gap-2 text-sm">
+						<span>
+							<strong>{memberName(t.fromId)}</strong> owes <strong>{memberName(t.toId)}</strong>
+							<span class="amount-neg">{formatMoney(t.amountCents)}</span>
+						</span>
+						<form method="POST" action="?/recordPayment" use:enhance>
+							<input type="hidden" name="fromId" value={t.fromId} />
+							<input type="hidden" name="toId" value={t.toId} />
+							<input type="hidden" name="amountCents" value={t.amountCents} />
+							<button class="btn btn-secondary">Record payment</button>
+						</form>
+					</li>
+				{/each}
+			</ul>
+
+			<ul
+				class="mt-4 grid grid-cols-1 gap-x-6 gap-y-1 border-t border-slate-100 pt-3 text-sm sm:grid-cols-2"
+			>
+				{#each shownBalances as b (b.memberId)}
+					<li class="flex justify-between gap-2">
+						<span class="min-w-0 truncate">{memberName(b.memberId)}</span>
+						{#if b.balanceCents > 0}
+							<span class="amount-pos shrink-0">is owed {formatMoney(b.balanceCents)}</span>
+						{:else if b.balanceCents < 0}
+							<span class="amount-neg shrink-0">owes {formatMoney(-b.balanceCents)}</span>
+						{:else}
+							<span class="muted shrink-0">even</span>
+						{/if}
+					</li>
+				{/each}
+			</ul>
+		{/if}
+
+		{#if data.payments.length > 0}
+			<h3 class="mt-4 mb-1 text-sm font-medium text-slate-700">Recent grocery payments</h3>
+			<ul class="space-y-1 text-sm">
+				{#each data.payments as p (p.id)}
+					<li class="flex justify-between gap-2">
+						<span class="min-w-0 truncate">
+							{memberName(p.fromId)} paid {memberName(p.toId)}
+							<span class="muted">· {p.date}</span>
+						</span>
+						<span class="shrink-0 tabular-nums">{formatMoney(p.amountCents)}</span>
+					</li>
+				{/each}
+			</ul>
+			<p class="muted mt-2">
+				Recorded a payment by mistake? Delete it on <a
+					class="text-emerald-700 hover:underline"
+					href="/payments">Payments</a
+				>.
 			</p>
 		{/if}
 	</section>

@@ -3,7 +3,7 @@ import { createTestDb } from '../db';
 import { createMember, updateMember } from './members';
 import { createExpense, softDeleteExpense } from './expenses';
 import { createPayment, softDeletePayment } from './payments';
-import { getHouseholdBalances } from './balances';
+import { getCategoryBalances, getHouseholdBalances } from './balances';
 
 async function setup() {
 	const db = await createTestDb();
@@ -126,5 +126,60 @@ describe('getHouseholdBalances', () => {
 		const names = balances.map((b) => b.memberId);
 		expect(names).toContain(inactive.id);
 		expect(balances.find((b) => b.memberId === inactive.id)?.balanceCents).toBe(0);
+	});
+});
+
+describe('getCategoryBalances', () => {
+	it('counts only the category expenses and tagged payments', async () => {
+		const { db, tyler, khiem, taro } = await setup();
+		const everyone = [{ memberId: tyler.id }, { memberId: khiem.id }, { memberId: taro.id }];
+		const base = { date: '2026-10-01', splitMode: 'equal' as const, participants: everyone };
+
+		// Groceries: Tyler pays 300 -> Tyler +200, Khiem -100, Taro -100.
+		await createExpense(
+			db,
+			{
+				...base,
+				description: 'Costco',
+				amountCents: 300,
+				payerId: tyler.id,
+				category: 'Groceries'
+			},
+			tyler.id
+		);
+		// Not groceries: ignored.
+		await createExpense(
+			db,
+			{ ...base, description: 'Wifi', amountCents: 900, payerId: khiem.id, category: 'Utilities' },
+			khiem.id
+		);
+		// Grocery payment (any case) counts; untagged payment does not.
+		await createPayment(
+			db,
+			{
+				fromId: khiem.id,
+				toId: tyler.id,
+				amountCents: 100,
+				date: '2026-10-02',
+				category: 'groceries'
+			},
+			khiem.id
+		);
+		await createPayment(
+			db,
+			{ fromId: taro.id, toId: tyler.id, amountCents: 50, date: '2026-10-02' },
+			taro.id
+		);
+
+		const { balances, transfers } = await getCategoryBalances(db, 'Groceries');
+		const byId = new Map(balances.map((b) => [b.memberId, b.balanceCents]));
+		expect(byId.get(tyler.id)).toBe(100);
+		expect(byId.get(khiem.id)).toBe(0);
+		expect(byId.get(taro.id)).toBe(-100);
+		expect(transfers).toEqual([{ fromId: taro.id, toId: tyler.id, amountCents: 100 }]);
+
+		// The overall ledger still counts every payment, tagged or not.
+		const overall = await getHouseholdBalances(db);
+		expect(overall.balances.reduce((a, b) => a + b.balanceCents, 0)).toBe(0);
 	});
 });

@@ -83,6 +83,15 @@
 				<label class="label" for="note">Note (optional)</label>
 				<input id="note" name="note" class="input" maxlength="500" value={values.note ?? ''} />
 			</div>
+			<label class="flex items-center gap-2 text-sm text-slate-700 sm:col-span-2">
+				<input
+					type="checkbox"
+					name="forGroceries"
+					checked={values.forGroceries}
+					class="rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
+				/>
+				For groceries (counts toward the grocery balances)
+			</label>
 			<div class="sm:col-span-2">
 				<button class="btn btn-primary">Record payment</button>
 			</div>
@@ -102,6 +111,12 @@
 								<p class="text-sm">
 									<strong>{p.fromName}</strong> paid <strong>{p.toName}</strong>
 									<span class="amount-pos">{formatMoney(p.amountCents)}</span>
+									{#if p.category}
+										<span
+											class="ml-1 rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-800"
+											>{p.category}</span
+										>
+									{/if}
 								</p>
 								<p class="muted">
 									{p.date}

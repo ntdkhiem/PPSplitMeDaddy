@@ -6,6 +6,7 @@ import { listMembers } from '$lib/server/services/members';
 import { createPayment, listPayments, softDeletePayment } from '$lib/server/services/payments';
 import { centsToInput, parseMoney, today } from '$lib/money';
 import { optionalText } from '$lib/server/forms';
+import { GROCERY_CATEGORY } from '$lib/components/expenses/categories';
 
 const paymentSchema = z.object({
 	fromId: z.string().min(1, 'Choose a payer'),
@@ -32,6 +33,7 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 		toName: membersById.get(p.toId)?.name ?? 'Unknown',
 		amountCents: p.amountCents,
 		note: p.note,
+		category: p.category,
 		createdByName: p.createdBy ? (membersById.get(p.createdBy)?.name ?? 'Unknown') : null
 	}));
 
@@ -43,7 +45,8 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 		toId: url.searchParams.get('to') ?? '',
 		amount: amountCents !== null && Number.isInteger(amountCents) ? centsToInput(amountCents) : '',
 		date: today(),
-		note: ''
+		note: '',
+		forGroceries: url.searchParams.get('category') === GROCERY_CATEGORY
 	};
 
 	return { members, payments, memberFilter, prefill };
@@ -59,7 +62,8 @@ export const actions: Actions = {
 			toId: String(raw.toId ?? ''),
 			amount: String(raw.amount ?? ''),
 			date: String(raw.date ?? today()),
-			note: String(raw.note ?? '')
+			note: String(raw.note ?? ''),
+			forGroceries: raw.forGroceries === 'on'
 		};
 
 		const parsed = paymentSchema.safeParse(raw);
@@ -95,7 +99,8 @@ export const actions: Actions = {
 				toId: parsed.data.toId,
 				amountCents: cents,
 				date: parsed.data.date,
-				note: optionalText(form, 'note')
+				note: optionalText(form, 'note'),
+				category: values.forGroceries ? GROCERY_CATEGORY : null
 			},
 			locals.member?.id ?? null
 		);

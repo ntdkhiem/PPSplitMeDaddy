@@ -148,6 +148,8 @@ export const payments = sqliteTable(
 		amountCents: integer('amount_cents').notNull(),
 		date: text('date').notNull(),
 		note: text('note'),
+		/** set (e.g. 'Groceries') when the payment settles that category's expenses */
+		category: text('category'),
 		createdBy: text('created_by').references(() => members.id),
 		createdAt: createdAt(),
 		deletedAt: integer('deleted_at', { mode: 'timestamp_ms' })
