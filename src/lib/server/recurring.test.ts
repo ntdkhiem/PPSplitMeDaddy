@@ -5,6 +5,7 @@ import { expenses, expenseShares } from './db/schema';
 import { createMember } from './services/members';
 import { getExpense, listExpenses, softDeleteExpense } from './services/expenses';
 import {
+	activeTemplatesForMember,
 	createTemplate,
 	deleteTemplate,
 	generateDueExpenses,
@@ -123,6 +124,36 @@ describe('recurring templates: CRUD', () => {
 		);
 		expect(updated.description).toBe('Rent (updated)');
 		expect(updated.participants).toHaveLength(3);
+	});
+
+	it('resumes a reactivated template from the current month instead of backfilling', async () => {
+		const { db, a, b } = await setup();
+		const tpl = await createTemplate(db, baseInput({ startPeriod: '2026-01' }, a.id, b.id), null);
+		expect(await generateDueExpenses(db, new Date(2026, 0, 10))).toBe(1); // Jan
+
+		await updateTemplate(db, tpl.id, baseInput({ active: false }, a.id, b.id));
+		const now = new Date(2026, 4, 10); // May 10: Feb–Apr were paused
+		const resumed = await updateTemplate(db, tpl.id, baseInput({ active: true }, a.id, b.id), now);
+		expect(resumed.startPeriod).toBe('2026-05');
+		expect(await generateDueExpenses(db, now)).toBe(1);
+		const periods = (await listExpenses(db)).map((e) => e.period).sort();
+		expect(periods).toEqual(['2026-01', '2026-05']);
+	});
+
+	it('keeps an explicitly changed startPeriod when reactivating', async () => {
+		const { db, a, b } = await setup();
+		const tpl = await createTemplate(
+			db,
+			baseInput({ startPeriod: '2026-01', active: false }, a.id, b.id),
+			null
+		);
+		const resumed = await updateTemplate(
+			db,
+			tpl.id,
+			baseInput({ startPeriod: '2026-03', active: true }, a.id, b.id),
+			new Date(2026, 4, 10)
+		);
+		expect(resumed.startPeriod).toBe('2026-03');
 	});
 });
 
@@ -262,5 +293,26 @@ describe('deleteTemplate', () => {
 		const after = await getTemplate(db, tpl.id);
 		expect(after).toBeDefined();
 		expect(after?.active).toBe(false);
+	});
+});
+
+describe('activeTemplatesForMember', () => {
+	it('finds active templates billing a member as payer or participant', async () => {
+		const { db, a, b, c } = await setup();
+		const rent = await createTemplate(db, baseInput({}, a.id, b.id), null);
+		await createTemplate(db, baseInput({ description: 'Old', active: false }, a.id, b.id), null);
+		await createTemplate(
+			db,
+			baseInput(
+				{ description: 'Internet', payerId: c.id, participants: [{ memberId: c.id }] },
+				a.id,
+				b.id
+			),
+			null
+		);
+		expect((await activeTemplatesForMember(db, b.id)).map((t) => t.id)).toEqual([rent.id]);
+		expect((await activeTemplatesForMember(db, c.id)).map((t) => t.description)).toEqual([
+			'Internet'
+		]);
 	});
 });

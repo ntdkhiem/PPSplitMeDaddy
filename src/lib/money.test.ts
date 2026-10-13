@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { formatMoney, localDate, parseMoney } from './money';
+import { formatMoney, isValidDate, localDate, parseMoney } from './money';
 
 describe('parseMoney', () => {
 	it.each([
@@ -40,4 +40,16 @@ describe('localDate', () => {
 			else process.env.APP_TZ = before;
 		}
 	});
+});
+
+describe('isValidDate', () => {
+	it.each(['2026-01-31', '2024-02-29', '2026-12-01'])('accepts %s', (d) => {
+		expect(isValidDate(d)).toBe(true);
+	});
+	it.each(['2026-02-31', '2025-02-29', '2026-13-01', '2026-00-10', '2026-1-1', '', 'nope'])(
+		'rejects %s',
+		(d) => {
+			expect(isValidDate(d)).toBe(false);
+		}
+	);
 });

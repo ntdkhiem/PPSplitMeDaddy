@@ -43,17 +43,19 @@
 				}
 			: {
 					description: data.expense.description,
-					amount: centsToInput(Math.abs(data.expense.amountCents)),
+					// drafts are stored with amount 0; leave the field empty for the user to fill in
+					amount:
+						data.expense.amountCents === 0 ? '' : centsToInput(Math.abs(data.expense.amountCents)),
 					isRefund: data.expense.amountCents < 0,
 					date: data.expense.date,
 					payerId: data.expense.payerId,
 					category: data.expense.category ?? '',
 					notes: data.expense.notes ?? '',
-					splitMode: data.expense.splitMode as SplitMode,
-					participants: sharesToParticipants(
-						data.expense.splitMode as SplitMode,
-						data.expense.shares
-					)
+					// a recurring draft has no shares yet, so its split comes from the template
+					splitMode: data.templateSplit?.splitMode ?? (data.expense.splitMode as SplitMode),
+					participants:
+						data.templateSplit?.participants ??
+						sharesToParticipants(data.expense.splitMode as SplitMode, data.expense.shares)
 				}
 	);
 

@@ -33,6 +33,17 @@ function balancesFrom(
 }
 
 /**
+ * Whether `t` is still one of the suggested settle-up transfers. Settle-up buttons post the transfer
+ * they were rendered with; checking it against fresh balances stops a double click, or two people
+ * recording the same suggestion, from creating a duplicate payment that flips the balance.
+ */
+export function isSuggestedTransfer(transfers: Transfer[], t: Transfer): boolean {
+	return transfers.some(
+		(x) => x.fromId === t.fromId && x.toId === t.toId && x.amountCents === t.amountCents
+	);
+}
+
+/**
  * Loads all posted, non-deleted expenses (with shares) and non-deleted payments, and returns
  * computeBalances() over all members (active and inactive) plus settleUp() transfers.
  */

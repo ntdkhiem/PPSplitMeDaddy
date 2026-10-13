@@ -51,6 +51,15 @@ export function localDate(d: Date): string {
 	return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
+/** Whether `s` is a real calendar date in YYYY-MM-DD form (rejects e.g. "2026-02-31"). */
+export function isValidDate(s: string): boolean {
+	const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s);
+	if (!m) return false;
+	const [y, mo, d] = [Number(m[1]), Number(m[2]), Number(m[3])];
+	const date = new Date(Date.UTC(y, mo - 1, d));
+	return date.getUTCFullYear() === y && date.getUTCMonth() === mo - 1 && date.getUTCDate() === d;
+}
+
 /** Today's date as YYYY-MM-DD (see localDate). */
 export function today(): string {
 	return localDate(new Date());

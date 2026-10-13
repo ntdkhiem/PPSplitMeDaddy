@@ -1,9 +1,13 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
+	import { invalidateAll } from '$app/navigation';
 	import { formatMoney } from '$lib/money';
 	import { barWidthPct, maxAbsBalance } from '$lib/components/dashboard/bars';
 
 	let { data, form } = $props();
+
+	/** a settle-up payment is being recorded (buttons disabled so a double click can't post twice) */
+	let recording = $state(false);
 
 	const nameById = $derived(new Map(data.members.map((m) => [m.id, m.name])));
 
@@ -118,11 +122,23 @@
 									<strong>{memberName(t.fromId)}</strong> pays <strong>{memberName(t.toId)}</strong>
 									<span class="amount-neg">{formatMoney(t.amountCents)}</span>
 								</span>
-								<form method="POST" action="?/record" use:enhance>
+								<form
+									method="POST"
+									action="?/record"
+									use:enhance={() => {
+										recording = true;
+										return async ({ result, update }) => {
+											await update();
+											// a stale suggestion was refused: reload so the current amounts show
+											if (result.type === 'failure') await invalidateAll();
+											recording = false;
+										};
+									}}
+								>
 									<input type="hidden" name="fromId" value={t.fromId} />
 									<input type="hidden" name="toId" value={t.toId} />
 									<input type="hidden" name="amountCents" value={t.amountCents} />
-									<button class="btn btn-secondary">Record payment</button>
+									<button class="btn btn-secondary" disabled={recording}>Record payment</button>
 								</form>
 							</li>
 						{/each}

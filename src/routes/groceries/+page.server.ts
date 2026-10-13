@@ -2,7 +2,7 @@ import { fail } from '@sveltejs/kit';
 import { z } from 'zod';
 import type { Actions, PageServerLoad } from './$types';
 import { getDb } from '$lib/server/db';
-import { getCategoryBalances } from '$lib/server/services/balances';
+import { getCategoryBalances, isSuggestedTransfer } from '$lib/server/services/balances';
 import { listExpenses } from '$lib/server/services/expenses';
 import { getMember, listMembers } from '$lib/server/services/members';
 import { createPayment, listPayments } from '$lib/server/services/payments';
@@ -73,8 +73,18 @@ export const actions: Actions = {
 		if (!parsed.success) return fail(400, { paymentError: 'Invalid payment' });
 		const { fromId, toId, amountCents } = parsed.data;
 		if (fromId === toId) return fail(400, { paymentError: 'Payer and recipient must differ' });
-		const [from, to] = await Promise.all([getMember(db, fromId), getMember(db, toId)]);
+		const [from, to, { transfers }] = await Promise.all([
+			getMember(db, fromId),
+			getMember(db, toId),
+			getCategoryBalances(db, GROCERY_CATEGORY)
+		]);
 		if (!from || !to) return fail(400, { paymentError: 'Unknown member' });
+		if (!isSuggestedTransfer(transfers, { fromId, toId, amountCents })) {
+			return fail(409, {
+				paymentError:
+					'Grocery balances changed since this page loaded (already recorded?). Check the updated amounts.'
+			});
+		}
 
 		await createPayment(
 			db,

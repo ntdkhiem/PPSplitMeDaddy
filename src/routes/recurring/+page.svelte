@@ -8,6 +8,12 @@
 
 	const memberName = (id: string) => data.members.find((m) => m.id === id)?.name ?? 'Unknown';
 
+	/** names of inactive members a template still bills (payer or participant) */
+	function inactiveIn(tpl: (typeof data.templates)[number]): string[] {
+		const ids = new Set([tpl.payerId, ...tpl.participants.map((p) => p.memberId)]);
+		return data.members.filter((m) => !m.active && ids.has(m.id)).map((m) => m.name);
+	}
+
 	const createdParam = $derived(page.url.searchParams.get('created'));
 	const deletedParam = $derived(page.url.searchParams.get('deleted'));
 	const deactivatedParam = $derived(page.url.searchParams.get('deactivated'));
@@ -63,6 +69,7 @@
 		<ul class="space-y-3">
 			{#each data.templates as tpl (tpl.id)}
 				{@const due = nextDueDate(tpl, today())}
+				{@const inactive = tpl.active ? inactiveIn(tpl) : []}
 				<li class="card">
 					<div class="flex flex-wrap items-start justify-between gap-2">
 						<div class="min-w-0">
@@ -79,6 +86,12 @@
 								Split with {tpl.participants.map((p) => memberName(p.memberId)).join(', ')}
 							</p>
 							<p class="muted">Monthly on day {tpl.dayOfMonth}</p>
+							{#if inactive.length > 0}
+								<p class="mt-1 text-sm text-amber-800" role="note">
+									Still bills {inactive.join(', ')}, who {inactive.length === 1 ? 'is' : 'are'} no longer
+									active. Edit the split if they've moved out.
+								</p>
+							{/if}
 						</div>
 						<div class="flex flex-col items-end gap-1">
 							<span

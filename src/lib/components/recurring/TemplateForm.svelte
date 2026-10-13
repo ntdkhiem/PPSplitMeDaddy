@@ -140,5 +140,9 @@
 			/>
 			Active (generates bills each month)
 		</label>
+		<p class="muted -mt-2">
+			Turning a paused bill back on resumes from this month; it doesn't create the months it was
+			paused.
+		</p>
 	{/if}
 </div>

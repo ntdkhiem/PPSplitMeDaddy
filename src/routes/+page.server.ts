@@ -5,7 +5,7 @@ import { getDb } from '$lib/server/db';
 import { getMember, listMembers } from '$lib/server/services/members';
 import { listExpenses } from '$lib/server/services/expenses';
 import { createPayment, listPayments } from '$lib/server/services/payments';
-import { getHouseholdBalances } from '$lib/server/services/balances';
+import { getHouseholdBalances, isSuggestedTransfer } from '$lib/server/services/balances';
 import { formatMoney, today } from '$lib/money';
 import {
 	mergeActivity,
@@ -76,9 +76,19 @@ export const actions: Actions = {
 		if (fromId === toId) {
 			return fail(400, { error: 'Payer and recipient must differ' });
 		}
-		const [from, to] = await Promise.all([getMember(db, fromId), getMember(db, toId)]);
+		const [from, to, { transfers }] = await Promise.all([
+			getMember(db, fromId),
+			getMember(db, toId),
+			getHouseholdBalances(db)
+		]);
 		if (!from || !to) {
 			return fail(400, { error: 'Unknown member' });
+		}
+		if (!isSuggestedTransfer(transfers, { fromId, toId, amountCents })) {
+			return fail(409, {
+				error:
+					'Balances changed since this page loaded (already recorded?). Check the updated amounts.'
+			});
 		}
 
 		await createPayment(

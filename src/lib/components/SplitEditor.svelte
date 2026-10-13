@@ -4,6 +4,7 @@
 	with parseSplitFields() from $lib/server/forms.
 -->
 <script lang="ts">
+	import { untrack } from 'svelte';
 	import { splitAmount, SplitError } from '$lib/ledger';
 	import { centsToInput, formatMoney, parseMoney } from '$lib/money';
 	import type { ShareInput, SplitMode } from '$lib/types';
@@ -36,12 +37,17 @@
 	];
 
 	// Per-member UI state, keyed by member id (kept even when unchecked so toggling doesn't lose input).
+	// Exact inputs hold magnitudes; they take the total's sign, so a refund's split is typed as
+	// positive amounts just like the refund's own amount field.
 	let weights = $state<Record<string, number>>({});
 	let exactInputs = $state<Record<string, string>>({});
 	for (const p of participants) {
 		if (p.weight !== undefined) weights[p.memberId] = p.weight;
-		if (p.amountCents !== undefined) exactInputs[p.memberId] = centsToInput(p.amountCents);
+		if (p.amountCents !== undefined)
+			exactInputs[p.memberId] = centsToInput(Math.abs(p.amountCents));
 	}
+
+	const sign = $derived(amountCents !== null && amountCents < 0 ? -1 : 1);
 
 	const selected = $derived(new Set(participants.map((p) => p.memberId)));
 
@@ -53,7 +59,10 @@
 				if (splitMode === 'shares') return { memberId: m.id, weight: weights[m.id] ?? 1 };
 				if (splitMode === 'exact') {
 					const cents = parseMoney(exactInputs[m.id] ?? '');
-					return { memberId: m.id, amountCents: cents ?? undefined };
+					return {
+						memberId: m.id,
+						amountCents: cents === null ? undefined : sign * Math.abs(cents)
+					};
 				}
 				return { memberId: m.id };
 			});
@@ -62,6 +71,14 @@
 	function refresh(ids: Set<string> = selected) {
 		participants = build(ids);
 	}
+
+	// Re-sign exact amounts when the total flips between expense and refund.
+	let lastSign = untrack(() => sign);
+	$effect(() => {
+		if (sign === lastSign) return;
+		lastSign = sign;
+		if (untrack(() => splitMode) === 'exact') untrack(() => refresh());
+	});
 
 	function toggle(id: string, checked: boolean) {
 		const ids = new Set(selected);
@@ -87,7 +104,8 @@
 	const exactRemaining = $derived.by(() => {
 		if (splitMode !== 'exact' || amountCents === null) return null;
 		const sum = participants.reduce((a, p) => a + (p.amountCents ?? 0), 0);
-		return amountCents - sum;
+		// positive = still to assign, negative = over the total (for refunds too)
+		return sign * (amountCents - sum);
 	});
 </script>
 
@@ -97,7 +115,10 @@
 	<input type="hidden" name="splitMode" value={splitMode} />
 	<input type="hidden" name="participants" value={JSON.stringify(participants)} />
 
-	<div class="inline-flex rounded-lg border border-slate-300 bg-white p-0.5 text-sm" role="radiogroup">
+	<div
+		class="inline-flex rounded-lg border border-slate-300 bg-white p-0.5 text-sm"
+		role="radiogroup"
+	>
 		{#each modes as mode (mode.value)}
 			<button
 				type="button"
@@ -181,7 +202,9 @@
 		<p class="muted">Pick at least one person.</p>
 	{:else if exactRemaining !== null && exactRemaining !== 0}
 		<p class="error-text">
-			{exactRemaining > 0 ? `${formatMoney(exactRemaining)} left to assign` : `${formatMoney(-exactRemaining)} over the total`}
+			{exactRemaining > 0
+				? `${formatMoney(exactRemaining)} left to assign`
+				: `${formatMoney(-exactRemaining)} over the total`}
 		</p>
 	{:else if showPreview && preview && !preview.ok}
 		<p class="error-text">{preview.message}</p>

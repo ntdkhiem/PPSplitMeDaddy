@@ -9,7 +9,9 @@ import {
 	updateExpense,
 	type ExpenseWithShares
 } from '$lib/server/services/expenses';
+import { getTemplate } from '$lib/server/recurring';
 import { SplitError } from '$lib/ledger';
+import type { ShareInput, SplitMode } from '$lib/types';
 import { categoryOptions } from '$lib/components/expenses/categories';
 import { parseExpenseForm } from '$lib/components/expenses/parse-expense-form';
 
@@ -19,12 +21,34 @@ async function loadExpenseOr404(db: DB, id: string): Promise<ExpenseWithShares> 
 	return expense;
 }
 
-/** Active members plus anyone inactive still referenced by this expense (payer or a share). */
-async function memberOptionsFor(db: DB, expense: ExpenseWithShares) {
+/**
+ * Split to prefill the editor with when the expense has no shares yet: a variable-amount recurring
+ * draft is stored without shares, so its split (mode, members, weights, exact amounts) comes from its
+ * template. Null when the expense's own shares should be used.
+ */
+async function templateSplitFor(
+	db: DB,
+	expense: ExpenseWithShares
+): Promise<{ splitMode: SplitMode; participants: ShareInput[] } | null> {
+	if (expense.shares.length > 0 || !expense.recurringTemplateId) return null;
+	const template = await getTemplate(db, expense.recurringTemplateId);
+	return template ? { splitMode: template.splitMode, participants: template.participants } : null;
+}
+
+/** Active members plus anyone inactive still referenced by this expense (payer or a participant). */
+async function memberOptionsFor(
+	db: DB,
+	expense: ExpenseWithShares,
+	templateParticipants: ShareInput[] = []
+) {
 	const active = await listMembers(db);
 	const seen = new Set(active.map((m) => m.id));
 	const options = [...active];
-	const extraIds = new Set([expense.payerId, ...expense.shares.map((s) => s.memberId)]);
+	const extraIds = new Set([
+		expense.payerId,
+		...expense.shares.map((s) => s.memberId),
+		...templateParticipants.map((p) => p.memberId)
+	]);
 	for (const id of extraIds) {
 		if (seen.has(id)) continue;
 		const m = await getMember(db, id);
@@ -39,9 +63,14 @@ async function memberOptionsFor(db: DB, expense: ExpenseWithShares) {
 export const load: PageServerLoad = async ({ params }) => {
 	const db = getDb();
 	const expense = await loadExpenseOr404(db, params.id);
-	const [members, expenses] = await Promise.all([memberOptionsFor(db, expense), listExpenses(db)]);
+	const templateSplit = await templateSplitFor(db, expense);
+	const [members, expenses] = await Promise.all([
+		memberOptionsFor(db, expense, templateSplit?.participants),
+		listExpenses(db)
+	]);
 	return {
 		expense,
+		templateSplit,
 		members,
 		categories: categoryOptions(expenses)
 	};

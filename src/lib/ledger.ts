@@ -1,3 +1,4 @@
+import { formatMoney } from './money';
 import type {
 	ComputedShare,
 	LedgerExpense,
@@ -38,7 +39,9 @@ export function splitAmount(
 			throw new SplitError('Every participant needs an exact amount');
 		const sum = (amounts as number[]).reduce((a, b) => a + b, 0);
 		if (sum !== amountCents)
-			throw new SplitError(`Exact amounts add up to ${sum} cents, expected ${amountCents}`);
+			throw new SplitError(
+				`Exact amounts add up to ${formatMoney(sum)}, expected ${formatMoney(amountCents)}`
+			);
 		return participants.map((p) => ({
 			memberId: p.memberId,
 			weight: null,

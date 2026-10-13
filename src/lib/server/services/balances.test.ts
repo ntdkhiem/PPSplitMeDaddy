@@ -3,7 +3,7 @@ import { createTestDb } from '../db';
 import { createMember, updateMember } from './members';
 import { createExpense, softDeleteExpense } from './expenses';
 import { createPayment, softDeletePayment } from './payments';
-import { getCategoryBalances, getHouseholdBalances } from './balances';
+import { getCategoryBalances, getHouseholdBalances, isSuggestedTransfer } from './balances';
 
 async function setup() {
 	const db = await createTestDb();
@@ -181,5 +181,27 @@ describe('getCategoryBalances', () => {
 		// The overall ledger still counts every payment, tagged or not.
 		const overall = await getHouseholdBalances(db);
 		expect(overall.balances.reduce((a, b) => a + b.balanceCents, 0)).toBe(0);
+	});
+});
+
+describe('isSuggestedTransfer', () => {
+	it('refuses a settle-up that was already recorded', async () => {
+		const { db, tyler, khiem } = await setup();
+		await createExpense(
+			db,
+			{
+				description: 'Dinner',
+				amountCents: 2000,
+				date: '2026-01-01',
+				payerId: tyler.id,
+				splitMode: 'equal',
+				participants: [{ memberId: tyler.id }, { memberId: khiem.id }]
+			},
+			null
+		);
+		const t = { fromId: khiem.id, toId: tyler.id, amountCents: 1000 };
+		expect(isSuggestedTransfer((await getHouseholdBalances(db)).transfers, t)).toBe(true);
+		await createPayment(db, { ...t, date: '2026-01-02' }, null);
+		expect(isSuggestedTransfer((await getHouseholdBalances(db)).transfers, t)).toBe(false);
 	});
 });

@@ -1,7 +1,7 @@
 // Server-only helper (imports $lib/server/*). Only import this from +page.server.ts files —
 // SvelteKit will fail the build if it's ever pulled into client code.
 import { z } from 'zod';
-import { parseMoney } from '$lib/money';
+import { isValidDate, parseMoney } from '$lib/money';
 import { parseSplitFields } from '$lib/server/forms';
 import type { ShareInput, SplitMode } from '$lib/types';
 
@@ -11,7 +11,7 @@ export const expenseFieldsSchema = z.object({
 		.trim()
 		.min(1, 'Description is required')
 		.max(120, 'Description is too long'),
-	date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Enter a valid date'),
+	date: z.string().refine(isValidDate, 'Enter a valid date'),
 	payerId: z.string().min(1, 'Choose who paid'),
 	category: z.string().max(60, 'Category is too long').optional(),
 	notes: z.string().max(2000, 'Notes are too long').optional()
@@ -92,6 +92,15 @@ export function parseExpenseForm(form: FormData, validMemberIds: Set<string>): P
 	if (!split.ok) errors.participants = split.error;
 
 	if (Object.keys(errors).length === 0 && parsed.success && amountCents !== null && split.ok) {
+		// Exact amounts are entered as magnitudes and take the total's sign (a refund's split is
+		// typed as positive amounts, like the refund itself).
+		const sign = Math.sign(amountCents);
+		const participants =
+			split.splitMode === 'exact'
+				? split.participants.map((p) =>
+						p.amountCents === undefined ? p : { ...p, amountCents: sign * Math.abs(p.amountCents) }
+					)
+				: split.participants;
 		return {
 			ok: true,
 			errors,
@@ -104,7 +113,7 @@ export function parseExpenseForm(form: FormData, validMemberIds: Set<string>): P
 				category: parsed.data.category?.trim() || null,
 				notes: parsed.data.notes?.trim() || null,
 				splitMode: split.splitMode,
-				participants: split.participants
+				participants
 			}
 		};
 	}

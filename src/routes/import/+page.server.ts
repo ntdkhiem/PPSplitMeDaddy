@@ -9,7 +9,7 @@ import {
 	type ParsedWorkbook,
 	type PersonMapping
 } from '$lib/server/import-xlsx';
-import { today } from '$lib/money';
+import { isValidDate, today } from '$lib/money';
 
 const MAX_FILE_BYTES = 5 * 1024 * 1024;
 
@@ -23,7 +23,10 @@ function requireAdmin(event: RequestEvent) {
 const parsedRowSchema = z.object({
 	row: z.number().int(),
 	description: z.string(),
-	amountCents: z.number().int(),
+	amountCents: z
+		.number()
+		.int()
+		.refine((n) => n !== 0),
 	participantNames: z.array(z.string())
 });
 
@@ -105,7 +108,7 @@ export const actions: Actions = {
 
 		const dateResult = z
 			.string()
-			.regex(/^\d{4}-\d{2}-\d{2}$/, 'Choose a valid import date')
+			.refine(isValidDate, 'Choose a valid import date')
 			.safeParse(form.get('date'));
 		if (!dateResult.success) {
 			return fail(400, { error: dateResult.error.issues[0].message, parsed, importDate: today() });

@@ -4,7 +4,7 @@ import type { Actions, PageServerLoad } from './$types';
 import { getDb } from '$lib/server/db';
 import { listMembers } from '$lib/server/services/members';
 import { createPayment, listPayments, softDeletePayment } from '$lib/server/services/payments';
-import { centsToInput, parseMoney, today } from '$lib/money';
+import { centsToInput, isValidDate, parseMoney, today } from '$lib/money';
 import { optionalText } from '$lib/server/forms';
 import { GROCERY_CATEGORY } from '$lib/components/expenses/categories';
 
@@ -12,7 +12,7 @@ const paymentSchema = z.object({
 	fromId: z.string().min(1, 'Choose a payer'),
 	toId: z.string().min(1, 'Choose a recipient'),
 	amount: z.string().min(1, 'Enter an amount'),
-	date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Choose a valid date')
+	date: z.string().refine(isValidDate, 'Choose a valid date')
 });
 
 export const load: PageServerLoad = async ({ locals, url }) => {

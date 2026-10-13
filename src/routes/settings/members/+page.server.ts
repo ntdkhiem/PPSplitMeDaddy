@@ -3,6 +3,7 @@ import { z } from 'zod';
 import type { Actions, PageServerLoad, RequestEvent } from './$types';
 import { getDb } from '$lib/server/db';
 import { createInvite, invalidateMemberSessions } from '$lib/server/auth';
+import { activeTemplatesForMember } from '$lib/server/recurring';
 import {
 	countActiveAdmins,
 	createMember,
@@ -106,12 +107,16 @@ export const actions: Actions = {
 			}
 		}
 		await updateMember(db, target.id, { active });
-		if (!active) await invalidateMemberSessions(db, target.id);
-		return {
-			action: 'setActive',
-			memberId: target.id,
-			success: active ? 'Activated' : 'Deactivated'
-		};
+		let success = 'Activated';
+		if (!active) {
+			await invalidateMemberSessions(db, target.id);
+			// Recurring bills keep splitting with a deactivated member until someone edits them.
+			const templates = await activeTemplatesForMember(db, target.id);
+			success = templates.length
+				? `Deactivated. Still billed by recurring: ${templates.map((t) => t.description).join(', ')} — edit them on the Recurring page.`
+				: 'Deactivated';
+		}
+		return { action: 'setActive', memberId: target.id, success };
 	},
 
 	setRole: async (event) => {

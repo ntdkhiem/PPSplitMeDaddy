@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import ExcelJS from 'exceljs';
 import { eq, and, isNull } from 'drizzle-orm';
@@ -9,13 +9,15 @@ import { createMember } from './services/members';
 import { parseWorkbook, commitImport, type ParsedWorkbook } from './import-xlsx';
 
 const xlsxPath = fileURLToPath(new URL('../../../1008 Ravenscourt Bills.xlsx', import.meta.url));
+/** The real workbook holds household data and isn't committed; its tests skip when it's absent. */
+const hasRealWorkbook = existsSync(xlsxPath);
 
 async function loadRealWorkbook(): Promise<ParsedWorkbook> {
 	const buffer = readFileSync(xlsxPath);
 	return parseWorkbook(buffer);
 }
 
-describe('parseWorkbook (real file)', () => {
+describe.skipIf(!hasRealWorkbook)('parseWorkbook (real file)', () => {
 	it('parses only the " Bills" sheets with the expected row counts', async () => {
 		const wb = await loadRealWorkbook();
 		const names = wb.sheets.map((s) => s.sheetName);
@@ -70,7 +72,7 @@ describe('parseWorkbook (real file)', () => {
 	});
 });
 
-describe('commitImport (real file into a test db)', () => {
+describe.skipIf(!hasRealWorkbook)('commitImport (real file into a test db)', () => {
 	it('imports all mapped rows, is idempotent with skipExisting, and balances the ledger', async () => {
 		const wb = await loadRealWorkbook();
 		const db = await createTestDb();

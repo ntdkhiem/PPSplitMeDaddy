@@ -42,6 +42,21 @@ export async function listTemplates(db: DB): Promise<RecurringTemplate[]> {
 	return db.select().from(recurringTemplates).all();
 }
 
+/** Active templates that bill `memberId`, as payer or participant (e.g. to warn when they move out). */
+export async function activeTemplatesForMember(
+	db: DB,
+	memberId: string
+): Promise<RecurringTemplate[]> {
+	const templates = await db
+		.select()
+		.from(recurringTemplates)
+		.where(eq(recurringTemplates.active, true))
+		.all();
+	return templates.filter(
+		(t) => t.payerId === memberId || t.participants.some((p) => p.memberId === memberId)
+	);
+}
+
 export async function getTemplate(db: DB, id: string): Promise<RecurringTemplate | undefined> {
 	return db.select().from(recurringTemplates).where(eq(recurringTemplates.id, id)).get();
 }
@@ -72,12 +87,26 @@ export async function createTemplate(
 		.get();
 }
 
+/**
+ * Validates and replaces the template's fields. Reactivating a paused template without changing its
+ * startPeriod resumes it from the current period of `now` (household time zone) instead of
+ * backfilling every month it was paused; an explicitly changed startPeriod is kept as given.
+ */
 export async function updateTemplate(
 	db: DB,
 	id: string,
-	input: TemplateInput
+	input: TemplateInput,
+	now: Date = new Date()
 ): Promise<RecurringTemplate> {
 	validateInput(input);
+	const existing = await getTemplate(db, id);
+	if (!existing) throw new Error('Recurring template not found');
+	let startPeriod = input.startPeriod;
+	const reactivating = !existing.active && (input.active ?? true);
+	if (reactivating && startPeriod === existing.startPeriod) {
+		const currentPeriod = localDate(now).slice(0, 7);
+		if (startPeriod < currentPeriod) startPeriod = currentPeriod;
+	}
 	const row = await db
 		.update(recurringTemplates)
 		.set({
@@ -88,7 +117,7 @@ export async function updateTemplate(
 			splitMode: input.splitMode,
 			participants: input.participants,
 			dayOfMonth: input.dayOfMonth,
-			startPeriod: input.startPeriod,
+			startPeriod,
 			active: input.active ?? true
 		})
 		.where(eq(recurringTemplates.id, id))
